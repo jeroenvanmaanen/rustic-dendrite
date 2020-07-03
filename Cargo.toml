@@ -1,5 +1,5 @@
 [package]
-name = "rusty-dendrite"
+name = "rustic-dendrite"
 version = "0.1.0"
 authors = ["jeroen"]
 edition = "2018"

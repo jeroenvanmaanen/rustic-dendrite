@@ -4,7 +4,7 @@ use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
 
 use hello_world::greeter_service_server::{GreeterService, GreeterServiceServer};
-use hello_world::{Acknowledgement,Empty,Greeting};
+use hello_world::{Acknowledgement,Greeting};
 
 pub mod hello_world {
     tonic::include_proto!("hello_world"); // The string specified here must match the proto package name

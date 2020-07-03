@@ -480,7 +480,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rusty-dendrite"
+name = "rustic-dendrite"
 version = "0.1.0"
 dependencies = [
  "prost 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
