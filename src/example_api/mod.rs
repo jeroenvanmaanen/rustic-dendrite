@@ -3,10 +3,10 @@ use crate::grpc_example::greeter_service_server::GreeterService;
 use crate::grpc_example::{Acknowledgement, Greeting};
 
 #[derive(Debug, Default)]
-pub struct MyGreeter {}
+pub struct GreeterServer {}
 
 #[tonic::async_trait]
-impl GreeterService for MyGreeter {
+impl GreeterService for GreeterServer {
     async fn greet(
         &self,
         request: Request<Greeting>,
