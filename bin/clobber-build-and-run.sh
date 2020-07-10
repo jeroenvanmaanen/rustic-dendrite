@@ -28,6 +28,16 @@ then
   shift
 fi
 
+DO_BUILD_BACK_END='true'
+DO_BUILD_PRESENT='true'
+DO_BUILD_SWAGGER_IMAGE='true'
+if [[ ".$1" = '.--back-end-only' ]]
+then
+  DO_BUILD_PRESENT='false'
+  DO_BUILD_SWAGGER_IMAGE='false'
+  shift
+fi
+
 DO_CLOBBER='true'
 if [[ ".$1" = '.--no-clobber' ]]
 then
@@ -85,39 +95,55 @@ function waitForDockerComposeReady() {
 
     if "${DO_BUILD}"
     then
+        info "Build rust docker image"
         docker build -t "${DOCKER_REPOSITORY}/rust" docker/rust
 
-        # Build server executables from Go sources
-        docker run --rm -v "cargo-home:/var/cargo-home" -e "CARGO_HOME=/var/cargo-home" \
-            -v "${PROJECT}:${PROJECT}" -w "${PROJECT}" "${DOCKER_REPOSITORY}/rust" \
-            cargo build
+        if "${DO_BUILD_BACK_END}"
+        then
+            # Build server executables from Rust sources
+            info "Build executables for the back-end"
+            docker run --rm -v "cargo-home:/var/cargo-home" -e "CARGO_HOME=/var/cargo-home" \
+                -v "${PROJECT}:${PROJECT}" -w "${PROJECT}" "${DOCKER_REPOSITORY}/rust" \
+                cargo build
+        fi
 
-        # Build docker images for presentation layer
-        "${PROJECT}/present/bin/npm-install-in-docker.sh"
-        "${PROJECT}/present/bin/build-in-docker.sh"
-        docker build -t "${DOCKER_REPOSITORY}/${ENSEMBLE_NAME}-present:${ENSEMBLE_IMAGE_VERSION}" present
-        EMPTY="${PROJECT}/target/empty-build-context"
-        mkdir -p "${EMPTY}"
-        docker build -t "${DOCKER_REPOSITORY}/${ENSEMBLE_NAME}-present:${ENSEMBLE_IMAGE_VERSION}-dev" -f present/Dockerfile-development "${EMPTY}"
+        if "${DO_BUILD_PRESENT}"
+        then
+            info "Run npm install"
+            "${PROJECT}/present/bin/npm-install-in-docker.sh"
+            info "Run npm run build"
+            "${PROJECT}/present/bin/build-in-docker.sh"
+            info "Build docker images for presentation layer"
+            docker build -t "${DOCKER_REPOSITORY}/${ENSEMBLE_NAME}-present:${ENSEMBLE_IMAGE_VERSION}" present
+            EMPTY="${PROJECT}/target/empty-build-context"
+            mkdir -p "${EMPTY}"
+            docker build -t "${DOCKER_REPOSITORY}/${ENSEMBLE_NAME}-present:${ENSEMBLE_IMAGE_VERSION}-dev" -f present/Dockerfile-development "${EMPTY}"
+        fi
 
-        # Build docker images for proxy
+        info "Build docker image for proxy"
         docker build -t "${DOCKER_REPOSITORY}/${ENSEMBLE_NAME}-proxy:${ENSEMBLE_IMAGE_VERSION}" docker/proxy
 
-        # Build docker image for Swagger UI
-        docker build -t "${DOCKER_REPOSITORY}/grpc-swagger" "docker/swagger"
+        if "${DO_BUILD_SWAGGER_IMAGE}"
+        then
+            info "Build docker image for Swagger UI"
+            docker build -t "${DOCKER_REPOSITORY}/grpc-swagger" "docker/swagger"
+        fi
     fi
 
     (
+        info "Stop pre-existing docker containers"
         cd docker
         docker-compose -p "${ENSEMBLE_NAME}" rm --stop --force || true
     )
 
     if "${DO_CLOBBER}"
     then
+      info "Remove pre-existing data volumes"
       docker volume rm -f "${ENSEMBLE_NAME}_axon-data"
       docker volume rm -f "${ENSEMBLE_NAME}_axon-eventdata"
       docker volume rm -f "${ENSEMBLE_NAME}_elastic-search-data"
     fi
-
-    docker/docker-compose-up.sh "${FLAGS_INHERIT[@]}" "$@"
 )
+
+info "Start containers"
+exec docker/docker-compose-up.sh "${FLAGS_INHERIT[@]}" "$@"
