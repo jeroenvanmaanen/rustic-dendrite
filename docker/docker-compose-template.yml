@@ -30,6 +30,8 @@ services:
     working_dir: ${PROJECT}/target
     command:
       - "debug/rustic-dendrite"
+    environment:
+      - "RUST_LOG=debug"
     init: true
     hostname: ${ENSEMBLE_NAME}
     networks:

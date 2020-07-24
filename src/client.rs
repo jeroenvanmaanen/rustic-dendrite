@@ -7,7 +7,7 @@ pub mod hello_world {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = GreeterClient::connect("http://localhost:50051").await?;
+    let mut client = GreeterClient::connect("http://host.docker.internal:50051").await?;
 
     let request = tonic::Request::new(HelloRequest {
         name: "Tonic".into(),

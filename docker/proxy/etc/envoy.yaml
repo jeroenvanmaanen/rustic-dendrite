@@ -125,7 +125,7 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: example-command-api
+                      address: rustic-command-api
                       port_value: 8181
 
 admin:
