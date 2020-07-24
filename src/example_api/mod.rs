@@ -2,13 +2,13 @@ use prost::{EncodeError,Message};
 use tonic::{Request, Response, Status};
 use crate::grpc_example::greeter_service_server::GreeterService;
 use crate::grpc_example::{Acknowledgement, Greeting};
-use super::axon_utils::{SendCommand,U8Message,WaitForServer};
+use super::axon_utils::{SendCommand, VecU8Message, WaitForServer};
 
 
 #[derive(Debug, Default)]
 pub struct GreeterServer {}
 
-impl U8Message for Greeting
+impl VecU8Message for Greeting
 where
     Self: Sized
 {

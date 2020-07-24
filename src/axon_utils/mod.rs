@@ -8,7 +8,7 @@ pub struct AxonConnection {
     id : String,
 }
 
-pub trait U8Message {
+pub trait VecU8Message {
     fn encode_u8(&self, buf: &mut Vec<u8>) -> Result<(),EncodeError>;
 }
 
