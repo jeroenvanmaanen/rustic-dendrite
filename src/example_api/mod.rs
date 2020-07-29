@@ -1,12 +1,14 @@
+use std::error::Error;
 use prost::{EncodeError,Message};
 use tonic::{Request, Response, Status};
+use crate::axon_utils::{InitCommandSender, CommandSink, CommandSinkHandle, VecU8Message};
 use crate::grpc_example::greeter_service_server::GreeterService;
 use crate::grpc_example::{Acknowledgement, Greeting};
-use super::axon_utils::{SendCommand, VecU8Message, WaitForServer};
 
-
-#[derive(Debug, Default)]
-pub struct GreeterServer {}
+#[derive(Debug)]
+pub struct GreeterServer {
+    command_sink: CommandSinkHandle,
+}
 
 impl VecU8Message for Greeting
 where
@@ -27,8 +29,7 @@ impl GreeterService for GreeterServer {
         let inner_request = request.into_inner();
         let result_message = inner_request.message.clone();
 
-        let axon_connection = WaitForServer().await.unwrap();
-        SendCommand("GreetCommand", Box::new(inner_request), &axon_connection);
+        self.command_sink.send_command("GreetCommand", Box::new(inner_request)).unwrap();
 
         let reply = Acknowledgement {
             message: format!("Hello {}!", result_message).into(),
@@ -36,4 +37,8 @@ impl GreeterService for GreeterServer {
 
         Ok(Response::new(reply))
     }
+}
+
+pub async fn init() -> Result<GreeterServer, Box<dyn Error>> {
+    InitCommandSender().await.map(|command_sink| {GreeterServer{ command_sink }})
 }
