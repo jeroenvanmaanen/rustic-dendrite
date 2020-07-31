@@ -1,3 +1,4 @@
+use log::{debug};
 use std::error::Error;
 use prost::{EncodeError,Message};
 use tonic::{Request, Response, Status};
@@ -25,7 +26,7 @@ impl GreeterService for GreeterServer {
         &self,
         request: Request<Greeting>,
     ) -> Result<Response<Acknowledgement>, Status> {
-        println!("Got a request: {:?}", request);
+        debug!("Got a request: {:?}", request);
         let inner_request = request.into_inner();
         let result_message = inner_request.message.clone();
 
