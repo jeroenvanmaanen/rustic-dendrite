@@ -21,28 +21,20 @@ pub async fn wait_for_server() -> Result<AxonConnection, Box<dyn Error>> {
 async fn wait_for_connection() -> PlatformServiceClient<Channel> {
     let interval = time::Duration::from_secs(1);
     loop {
-        let client = PlatformServiceClient::connect("http://proxy:8124").await;
-        let mut client = match client {
-            Ok(client) => client,
-            Err(_) => {
-                debug!(".");
-                thread::sleep(interval);
-                continue;
-            }
-        };
-        let mut client_identification = ClientIdentification::default();
-        client_identification.component_name = "Xyz".to_string();
-        debug!("Client identification: {:?}", client_identification);
-        let response = client.get_platform_server(Request::new(client_identification)).await;
-        let response = match response {
-            Ok(client) => client,
-            Err(e) => {
-                debug!(".({:?})", e);
-                thread::sleep(interval);
-                continue;
-            }
-        };
-        debug!("Response: {:?}", response);
-        return client;
+        match try_to_connect().await {
+            Ok(client) => return client,
+            Err(e) => debug!(". ({:?})", e)
+        }
+        thread::sleep(interval);
+        continue;
     }
+}
+
+async fn try_to_connect() -> Result<PlatformServiceClient<Channel>, Box<dyn Error>> {
+    let mut client = PlatformServiceClient::connect("http://proxy:8124").await?;
+    let mut client_identification = ClientIdentification::default();
+    client_identification.component_name = "Xyz".to_string();
+    let response = client.get_platform_server(Request::new(client_identification)).await?;
+    debug!("Response: {:?}", response);
+    return Ok(client);
 }
