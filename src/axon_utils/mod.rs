@@ -1,7 +1,6 @@
 use prost::EncodeError;
 mod command_submit;
 mod connection;
-// mod pool;
 
 #[derive(Debug)]
 pub struct CommandSinkHandle {
@@ -23,4 +22,3 @@ pub trait CommandSink {
 
 pub use command_submit::init as InitCommandSender;
 pub use connection::wait_for_server as WaitForServer;
-// pub use pool::AxonServerConnectionManager;
