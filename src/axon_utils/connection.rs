@@ -8,9 +8,10 @@ use super::AxonConnection;
 use crate::axon_server::control::{ClientIdentification};
 use crate::axon_server::control::platform_service_client::{PlatformServiceClient};
 
-pub async fn wait_for_server() -> Result<AxonConnection, Box<dyn Error>> {
-    let client = wait_for_connection().await;
-    debug!("PlatformServiceClient: {:?}", client);
+pub async fn wait_for_server(host: &str, port: u32, label: &str) -> Result<AxonConnection, Box<dyn Error>> {
+    let url = format!("http://{}:{}", host, port);
+    let conn = wait_for_connection(&url, label).await;
+    debug!("Connection: {:?}", conn);
     let uuid = Uuid::new_v4();
     let connection = AxonConnection {
         id: format!("{:?}", uuid.to_simple()),
@@ -18,11 +19,12 @@ pub async fn wait_for_server() -> Result<AxonConnection, Box<dyn Error>> {
     Ok(connection)
 }
 
-async fn wait_for_connection() -> PlatformServiceClient<Channel> {
+async fn wait_for_connection(url: &str, label: &str) -> Channel {
+    let static_url: &'static str = Box::leak(url.to_string().into_boxed_str());
     let interval = time::Duration::from_secs(1);
     loop {
-        match try_to_connect().await {
-            Ok(client) => return client,
+        match try_to_connect(&static_url, label).await {
+            Ok(conn) => return conn,
             Err(e) => debug!(". ({:?})", e)
         }
         thread::sleep(interval);
@@ -30,11 +32,12 @@ async fn wait_for_connection() -> PlatformServiceClient<Channel> {
     }
 }
 
-async fn try_to_connect() -> Result<PlatformServiceClient<Channel>, Box<dyn Error>> {
-    let mut client = PlatformServiceClient::connect("http://proxy:8124").await?;
+async fn try_to_connect(url: &'static str, label: &'_ str) -> Result<Channel, Box<dyn Error>> {
+    let conn = tonic::transport::Endpoint::new(url)?.connect().await?;
+    let mut client = PlatformServiceClient::new(conn.clone());
     let mut client_identification = ClientIdentification::default();
-    client_identification.component_name = "Xyz".to_string();
+    client_identification.component_name = format!("Rust client {}", &*label);
     let response = client.get_platform_server(Request::new(client_identification)).await?;
     debug!("Response: {:?}", response);
-    return Ok(client);
+    return Ok(conn);
 }

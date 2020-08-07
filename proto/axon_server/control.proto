@@ -1,5 +1,6 @@
 syntax = "proto3";
 package io.axoniq.axonserver.grpc.control;
+import "common.proto";
 option java_multiple_files = true;
 
 /* Service describing operations for connecting to the AxonServer platform.
@@ -33,7 +34,19 @@ message PlatformInboundInstruction {
            This information is used by AxonServer to monitor the progress of Tracking Processors across instances.
          */
         EventProcessorInfo event_processor_info = 2;
+
+        /* This heartbeat is used by AxonServer in order to check if the connection is still alive*/
+        Heartbeat heartbeat = 3;
+
+        /* Acknowledgement of previously sent instruction via outbound stream */
+        InstructionAck ack = 4;
+
+        /* The result of the execution of an instruction */
+        InstructionResult result = 6;
     }
+
+    /* Instruction identifier. If this identifier is set, this instruction will be acknowledged via outbound stream */
+    string instruction_id = 5;
 }
 
 /* An instruction or information from the AxonServer Platform to the Application Node */
@@ -68,7 +81,16 @@ message PlatformOutboundInstruction {
 
         /* Instruction to merge two Segments in a Tracking Event Processor */
         EventProcessorSegmentReference merge_event_processor_segment = 9;
+
+        /* This heartbeat is used by AxonFramework in order to check if the connection is still alive*/
+        Heartbeat heartbeat = 10;
+
+        /* Acknowledgement of previously sent instruction via inbound stream */
+        InstructionAck ack = 11;
     }
+
+    /* Instruction identifier. If this identifier is set, this instruction will be acknowledged via inbound stream */
+    string instruction_id = 12;
 }
 
 /* Message send when AxonServer requests the client to re-establish its connection with the Platform */
@@ -117,6 +139,9 @@ message ClientIdentification {
 
     /* Any tags associated with the client, which may provide hints and preferences for setting up connections */
     map<string, string> tags = 3;
+
+    /* Axon framework version used by the client application instance*/
+    string version = 4;
 }
 
 /* Message containing information about the status of a Tracking Event Processor */
@@ -167,6 +192,9 @@ message EventProcessorInfo {
        Will report 0 if all threads are assigned a Segment.
      */
     int32 available_threads = 7;
+
+    /* The Token Store Identifier if available. This is only provided by Tracking Event Processors.*/
+    string token_store_identifier = 8;
 }
 
 /* Message providing reference to an Event Processor */
@@ -184,4 +212,7 @@ message EventProcessorSegmentReference {
 
     /* The identifier of the Segment */
     int32 segment_identifier = 2;
+}
+
+message Heartbeat {
 }

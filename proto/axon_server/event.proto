@@ -22,7 +22,9 @@ service EventStore {
     rpc ListAggregateSnapshots (GetAggregateSnapshotsRequest) returns (stream Event) {
     }
 
-    // Retrieves the Events from a given tracking token. Results are streamed rather than returned at once.
+    /* Retrieves the Events from a given tracking token. However, if several GetEventsRequests are sent in the stream
+     only first one will create the tracker, others are used for increasing number of permits or blacklisting. Results
+     are streamed rather than returned at once. */
     rpc ListEvents (stream GetEventsRequest) returns (stream EventWithToken) {
     }
 
@@ -46,6 +48,49 @@ service EventStore {
     // Retrieves the token of the first token of an event from specified time in event store. Returns -1 when no events in store.
     rpc GetTokenAt (GetTokenAtRequest) returns (TrackingToken) {
     }
+}
+
+/* Service to use AxonServer as a provider of an EventScheduler */
+service EventScheduler {
+    //  Schedule the given event for publication at the given time}. The returned ScheduleToken can be used to cancel the planned publication.
+    rpc ScheduleEvent (ScheduleEventRequest) returns (ScheduleToken) {
+    }
+    //  Cancel a scheduled event and schedule another in its place.
+    rpc RescheduleEvent (RescheduleEventRequest) returns (ScheduleToken) {
+    }
+    //  Cancel the publication of a scheduled event. If the events has already been published, this method does nothing.
+    rpc CancelScheduledEvent (CancelScheduledEventRequest) returns (InstructionAck) {
+    }
+}
+
+/* Request message to schedule an event */
+message ScheduleEventRequest {
+    /* timestamp when to publish the event */
+    int64 instant = 1;
+    /* the event to publish */
+    Event event = 2;
+}
+
+/* Request message to reschedule an event */
+message RescheduleEventRequest {
+    /* optional token of scheduled event to cancel */
+    string token = 1;
+    /* timestamp when to publish the event */
+    int64 instant = 2;
+    /* the event to publish */
+    Event event = 3;
+}
+
+/* Request message to cancel an event */
+message CancelScheduledEventRequest {
+    /* token of scheduled event to cancel */
+    string token = 1;
+}
+
+/* Token to manage a scheduled event */
+message ScheduleToken {
+    /* Field defining the token identifier */
+    string token = 1;
 }
 
 /* Request message to receive the first Token (Tail Token) of the Event Stream */
@@ -91,6 +136,15 @@ message QueryEventsRequest {
 
     /* Whether to keep the query running against incoming events once the Head of the Stream is reached */
     bool live_events = 3;
+
+    /* Indicates whether to force querying events from the leader node of an Axon Server. Forcing reads from leader
+     * reduces the staleness of the data read, but also puts extra burden on the leader, reducing overall scalability.
+     * <p>
+     * This property has no effect on connections to AxonServer SE.
+     * </p>
+     */
+    bool force_read_from_leader = 4;
+
 }
 
 /* A message describing a response to a Query request */
@@ -162,6 +216,12 @@ message GetAggregateEventsRequest {
 
     /* Whether a snapshot may be returned as first element in the stream */
     bool allow_snapshots = 3;
+
+    /* The maximum sequence number (inclusive) of the events to retrieve, 0 means up to last event */
+    int64 max_sequence = 4;
+
+    /* Hint for a minimum token to search events from */
+    int64 min_token = 5;
 }
 
 /* Request message to retrieve Snapshot Events for a specific Aggregate instance */
@@ -203,6 +263,14 @@ message GetEventsRequest {
        time-outs and stale tokens on clients.
      */
     repeated PayloadDescription blacklist = 6;
+
+    /* Indicates whether to force reading events from the leader node of an Axon Server. Forcing reads from leader
+     * reduces the staleness of the data read, but also puts extra burden on the leader, reducing overall scalability.
+     * <p>
+     * This property has no effect on connections to AxonServer SE.
+     * </p>
+     */
+    bool force_read_from_leader = 7;
 }
 
 /* Message containing the information of an Event */

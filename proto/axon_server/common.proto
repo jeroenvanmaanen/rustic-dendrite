@@ -1,5 +1,6 @@
 syntax = "proto3";
 package io.axoniq.axonserver.grpc;
+import "google/protobuf/any.proto";
 option java_multiple_files = true;
 
 /* Describes a serialized object */
@@ -64,7 +65,7 @@ enum ProcessingKey {
     NR_OF_RESULTS = 3;
 
     // do not reuse reserved number to ensure forward and backward compatibility
-    // reserved 4, 5, 6;
+    reserved 4, 5, 6;
 }
 
 /* Message containing details of an error */
@@ -78,6 +79,9 @@ message ErrorMessage {
 
     /* A collection of messages providing more details about root causes of the error */
     repeated string details = 3;
+
+    /* An Error Code identifying the type of error */
+    string error_code = 4;
 }
 
 /* Message used for Flow Control instruction, providing the counterpart with additional permits for sending messages */
@@ -92,12 +96,43 @@ message FlowControl {
     int64 permits = 3;
 }
 
-/* Message describing a confirmation of a request or instruction */
-message Confirmation {
+/* Message describing instruction acknowledgement */
+message InstructionAck {
 
-    /* The identifier of the message to confirm */
-    string message_id = 1;
+    /* The identifier of the instruction */
+    string instruction_id = 1;
 
-    /* Indicator whether the instruction was handled successfully */
+    /* Indicator whether the instruction was acknowledged successfully */
     bool success = 2;
+
+    /* Set if instruction acknowledgement failed. */
+    ErrorMessage error = 3;
+}
+
+/* Message describing the result of the execution of an instruction*/
+message InstructionResult {
+
+    /* The identifier of the instruction */
+    string instruction_id = 1;
+
+    /* Indicator whether the instruction was processed successfully */
+    bool success = 2;
+
+    /* Cause of instruction handling failure. */
+    ErrorMessage error = 3;
+}
+
+/* Defines status values for a scheduled task */
+enum TaskStatus {
+    // Task is scheduled for execution
+    SCHEDULED = 0;
+    // Task execution completed successfully
+    COMPLETED = 1;
+    // Task execution failed with non transient exception
+    FAILED = 2;
+    // Task execution is in progress
+    RUNNING = 3;
+    // Task execution is in progress
+    CANCELLED = 4;
+
 }

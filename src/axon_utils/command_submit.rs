@@ -3,7 +3,7 @@ use log::{debug};
 use prost::EncodeError;
 
 pub async fn init() -> Result<CommandSinkHandle, Box<dyn std::error::Error>>{
-    let axon_connection = WaitForServer().await.unwrap();
+    let axon_connection = WaitForServer("proxy", 8124, "API").await.unwrap();
     debug!("Axon connection: {:?}", axon_connection);
     let command_sink = CommandSinkHandle { display_name: axon_connection.id };
     Ok(command_sink)
