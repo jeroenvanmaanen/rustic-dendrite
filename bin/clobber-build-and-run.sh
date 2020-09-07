@@ -102,7 +102,10 @@ function waitForDockerComposeReady() {
         then
             # Build server executables from Rust sources
             info "Build executables for the back-end"
+            DOCKER_FLAGS=()
+            ## DOCKER_FLAGS=(-e 'RUSTFLAGS=-Z macro-backtrace')
             docker run --rm -v "cargo-home:/var/cargo-home" -e "CARGO_HOME=/var/cargo-home" \
+                "${DOCKER_FLAGS[@]}" \
                 -v "${PROJECT}:${PROJECT}" -w "${PROJECT}" "${DOCKER_REPOSITORY}/rust" \
                 cargo build
         fi

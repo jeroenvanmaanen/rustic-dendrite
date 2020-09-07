@@ -15,6 +15,7 @@ pub async fn wait_for_server(host: &str, port: u32, label: &str) -> Result<AxonC
     let uuid = Uuid::new_v4();
     let connection = AxonConnection {
         id: format!("{:?}", uuid.to_simple()),
+        conn
     };
     Ok(connection)
 }

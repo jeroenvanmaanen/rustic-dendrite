@@ -3,6 +3,8 @@
 BIN="$(cd "$(dirname "$0")" ; pwd)"
 PROJECT="$(dirname "${BIN}")"
 
+source "${BIN}/verbose.sh"
+
 HOST='host.docker.internal'
 if [[ ".$1" = '.--host' ]]
 then

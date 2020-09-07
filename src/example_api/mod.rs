@@ -30,7 +30,7 @@ impl GreeterService for GreeterServer {
         let inner_request = request.into_inner();
         let result_message = inner_request.message.clone();
 
-        self.command_sink.send_command("GreetCommand", Box::new(inner_request)).unwrap();
+        self.command_sink.send_command("GreetCommand", Box::new(&inner_request)).await.unwrap();
 
         let reply = Acknowledgement {
             message: format!("Hello {}!", result_message).into(),
