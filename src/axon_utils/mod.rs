@@ -7,7 +7,7 @@ mod command_submit;
 mod connection;
 
 #[derive(Debug, Clone)]
-pub struct CommandSinkHandle {
+pub struct AxonServerHandle {
     display_name: String,
     pub conn: Channel,
 }
