@@ -2,7 +2,7 @@ use log::{debug};
 use std::error::Error;
 use prost::{EncodeError,Message};
 use tonic::{Request, Response, Status};
-use crate::axon_utils::{InitCommandSender, CommandSink, AxonServerHandle, VecU8Message};
+use crate::axon_utils::{init_command_sender, CommandSink, AxonServerHandle, VecU8Message};
 use crate::grpc_example::greeter_service_server::GreeterService;
 use crate::grpc_example::{Acknowledgement, Greeting};
 
@@ -41,5 +41,5 @@ impl GreeterService for GreeterServer {
 }
 
 pub async fn init() -> Result<GreeterServer, Box<dyn Error>> {
-    InitCommandSender().await.map(|command_sink| {GreeterServer{ axon_server_handle: command_sink }})
+    init_command_sender().await.map(|command_sink| {GreeterServer{ axon_server_handle: command_sink }})
 }

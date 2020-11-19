@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::vec::Vec;
 use uuid::Uuid;
-use super::{CommandSink, AxonServerHandle, WaitForServer, VecU8Message};
+use super::{CommandSink, AxonServerHandle, wait_for_server, VecU8Message};
 use crate::axon_server::SerializedObject;
 use crate::axon_server::command::Command;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
 pub async fn init() -> Result<AxonServerHandle, Box<dyn std::error::Error>> {
-    let axon_connection = WaitForServer("proxy", 8124, "API").await.unwrap();
+    let axon_connection = wait_for_server("proxy", 8124, "API").await.unwrap();
     debug!("Axon connection: {:?}", axon_connection);
     let command_sink = AxonServerHandle { display_name: axon_connection.id, conn: axon_connection.conn };
     Ok(command_sink)

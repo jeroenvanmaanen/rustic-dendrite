@@ -4,11 +4,12 @@ use prost::EncodeError;
 use tonic::transport::Channel;
 
 mod command_submit;
+mod command_worker;
 mod connection;
 
 #[derive(Debug, Clone)]
 pub struct AxonServerHandle {
-    display_name: String,
+    pub display_name: String,
     pub conn: Channel,
 }
 
@@ -27,5 +28,6 @@ pub trait CommandSink {
     async fn send_command(&self, command_type: &str, command: Box<&(dyn VecU8Message + Sync)>) -> Pin<Box<Result<(),EncodeError>>>;
 }
 
-pub use command_submit::init as InitCommandSender;
-pub use connection::wait_for_server as WaitForServer;
+pub use command_submit::init as init_command_sender;
+pub use connection::wait_for_server as wait_for_server;
+pub use command_worker::command_worker as command_worker;
