@@ -8,7 +8,6 @@ use crate::axon_server::FlowControl;
 use crate::axon_server::command::{CommandProviderOutbound,CommandSubscription};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
-use std::alloc::dealloc;
 
 pub async fn command_worker(axon_connection: AxonConnection, commands: &'static[&'static str]) -> Result<(),&str> {
     debug!("Command worker: start");
@@ -25,31 +24,30 @@ pub async fn command_worker(axon_connection: AxonConnection, commands: &'static[
     let result = client.open_stream(Request::new(outbound)).await;
     debug!("Stream result: {:?}", result);
 
-    // match result {
-    //     Ok(response) => {
-    //         let mut inbound = response.into_inner();
-    //         loop {
-    //             let message = inbound.message().await;
-    //             match message {
-    //                 Ok(Some(command)) => {
-    //                     debug!("Incoming command: {:?}", command);
-    //                 }
-    //                 Ok(None) => {
-    //                     debug!("None incoming");
-    //                 }
-    //                 Err(e) => {
-    //                     error!("Error from AxonServer: {:?}", e);
-    //                     return Ok(()); // return Err(e.code().to_string().into())
-    //                 }
-    //             }
-    //         };
-    //     }
-    //     Err(e) => {
-    //         error!("gRPC error: {:?}", e);
-    //         return Ok(()); // return Err(e.code().to_string().into())
-    //     }
-    // }
-    Ok(())
+    match result {
+        Ok(response) => {
+            let mut inbound = response.into_inner();
+            loop {
+                let message = inbound.message().await;
+                match message {
+                    Ok(Some(command)) => {
+                        debug!("Incoming command: {:?}", command);
+                    }
+                    Ok(None) => {
+                        debug!("None incoming");
+                    }
+                    Err(e) => {
+                        error!("Error from AxonServer: {:?}", e);
+                        return Ok(()); // return Err(e.code().to_string().into())
+                    }
+                }
+            };
+        }
+        Err(e) => {
+            error!("gRPC error: {:?}", e);
+            return Ok(()); // return Err(e.code().to_string().into())
+        }
+    }
 }
 
 fn create_output_stream(client_id: String, command_box: Box<Vec<String>>) -> impl Stream<Item = CommandProviderOutbound> {
