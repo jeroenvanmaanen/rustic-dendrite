@@ -1,6 +1,7 @@
 use async_stream::{stream};
 use futures_core::stream::{Stream};
 use log::{debug,error};
+use std::{thread,time};
 use tonic::{Request};
 use uuid::Uuid;
 use super::AxonConnection;
@@ -9,7 +10,7 @@ use crate::axon_server::command::{CommandProviderOutbound,CommandSubscription};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
-pub async fn command_worker(axon_connection: AxonConnection, commands: &'static[&'static str]) -> Result<(),&str> {
+pub async fn command_worker(axon_connection: AxonConnection, commands: &'static[&'static str]) -> Result<(),String> {
     debug!("Command worker: start");
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let client_id = axon_connection.id.clone();
@@ -38,14 +39,14 @@ pub async fn command_worker(axon_connection: AxonConnection, commands: &'static[
                     }
                     Err(e) => {
                         error!("Error from AxonServer: {:?}", e);
-                        return Ok(()); // return Err(e.code().to_string().into())
+                        return Err(e.code().to_string());
                     }
                 }
             };
         }
         Err(e) => {
             error!("gRPC error: {:?}", e);
-            return Ok(()); // return Err(e.code().to_string().into())
+            return Err(e.code().to_string());
         }
     }
 }
@@ -65,6 +66,7 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>) -> imp
             };
             debug!("Subscribe command: Subscription: {:?}", subscription);
             let instruction_id = Uuid::new_v4();
+            debug!("Subscribe command: Instruction ID: {:?}", instruction_id);
             let instruction = CommandProviderOutbound {
                 instruction_id: format!("{:?}", instruction_id.to_simple()),
                 request: Some(command_provider_outbound::Request::Subscribe(subscription)),
@@ -74,7 +76,7 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>) -> imp
         debug!("Command worker: stream: send one flow-control permit");
         let flow_control = FlowControl {
             client_id,
-            permits: 1,
+            permits: 20,
         };
         let instruction_id = Uuid::new_v4();
         let instruction = CommandProviderOutbound {
@@ -82,6 +84,13 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>) -> imp
             request: Some(command_provider_outbound::Request::FlowControl(flow_control)),
         };
         yield instruction.to_owned();
-        debug!("Command worker: stream: stop");
+
+        let interval = time::Duration::from_millis(10000);
+        loop {
+            thread::sleep(interval);
+            debug!("Command worker: heart beat");
+        }
+
+        // debug!("Command worker: stream: stop");
     }
 }
