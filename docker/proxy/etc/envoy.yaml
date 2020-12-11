@@ -1,5 +1,5 @@
 node:
-  id: example_hub
+  id: rustic_hub
   cluster: test_cluster
 
 static_resources:
@@ -28,7 +28,7 @@ static_resources:
                               - name: Content-Type
                                 exact_match : application/grpc-web-text
                           route:
-                            host_rewrite: example-command-api
+                            host_rewrite: rustic-command-api
                             cluster: service_core
                             max_grpc_timeout: 0s
                             cors:
@@ -42,12 +42,12 @@ static_resources:
                             prefix: "/"
                             grpc: {}
                           route:
-                            host_rewrite: example-command-api
+                            host_rewrite: rustic-command-api
                             cluster: service_core
                         - match:
                             prefix: "/"
                           route:
-                            host_rewrite: example-present
+                            host_rewrite: rustic-present
                             cluster: service_present
                 http_filters:
                   - name: envoy.cors
@@ -95,7 +95,7 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: example-present
+                      address: rustic-present
                       port_value: 3000
     - name: service_axon
       connect_timeout: 0.25s

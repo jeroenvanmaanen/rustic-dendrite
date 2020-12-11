@@ -18,11 +18,11 @@ class Greet extends Component {
             <div>
                 <h3>Greetings</h3>
                 <p><input type='submit' id='record' value=' Record ' onClick={this.handleRecord}/>
-                   <input type='submit' id='stop' value=' Stop ' onClick={this.handleStop} class='trailing'/>
+                   <input type='submit' id='stop' value=' Stop ' onClick={this.handleStop} className='trailing'/>
                 </p>
                 <p><input type='text' id='message' />
-                   <input type='submit' id='submit-greeting' value=' Go! ' onClick={this.handleSubmit} class='trailing'/>
-                   <input type='submit' id='submit-query' value=' Submit Lucene query ' onClick={this.handleQuery} class='trailing'/>
+                   <input type='submit' id='submit-greeting' value=' Go! ' onClick={this.handleSubmit} className='trailing'/>
+                   <input type='submit' id='submit-query' value=' Submit Lucene query ' onClick={this.handleQuery} className='trailing'/>
                 </p>
                 <p><input type='submit' id='refresh-greetings' value=' Refresh! ' onClick={this.handleRefresh}/></p>
                 <div id='greetings'><div><i>greetings appear here</i></div></div>
