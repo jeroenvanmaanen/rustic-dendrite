@@ -16,6 +16,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let addr = "0.0.0.0:8181".parse()?;
     let greeter_server = init().await.unwrap();
+    info!("Starting gRPC server");
     Server::builder()
         .add_service(GreeterServiceServer::new(greeter_server))
         .serve(addr)

@@ -1,7 +1,7 @@
 use async_stream::{stream};
 use futures_core::stream::{Stream};
 use log::{debug,error};
-use std::{thread,time};
+use tokio::time::{delay_for,Duration};
 use tonic::{Request};
 use uuid::Uuid;
 use super::AxonConnection;
@@ -85,9 +85,9 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>) -> imp
         };
         yield instruction.to_owned();
 
-        let interval = time::Duration::from_millis(10000);
+        let interval = Duration::from_millis(10000);
         loop {
-            thread::sleep(interval);
+            delay_for(interval).await;
             debug!("Command worker: heart beat");
         }
 
