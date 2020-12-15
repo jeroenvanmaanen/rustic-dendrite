@@ -8,10 +8,10 @@ This project is a sibling of [dendrite2go](https://github.com/dendrite2go) and [
 
 This project is still **Work In Progress**.
 The first phase is to communicate with Axon Server properly. This will be achieved following the same steps as for [archetype-go-axon](https://github.com/dendrite2go/archetype-go-axon):
-1. ☐ Set up a session with AxonServer
-   *  ☐ Enable React app to call a RPC endpoint on the example-command-api service through grpc-web
-2. ☐ Issue commands
-3. ☐ Register a command handler and handle commands
+1. ☑ Set up a session with AxonServer
+   *  ☑ Enable React app to call a RPC endpoint on the example-command-api service through grpc-web
+2. ☑ Issue commands
+3. ☑ Register a command handler and handle commands
 4. ☐ Submit events
    * ☐ Stream events to UI
 5. ☐ Retrieve the events for an aggregate and build a projection
