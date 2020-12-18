@@ -1,7 +1,6 @@
+use anyhow::{Result};
 use log::{debug};
-use prost::EncodeError;
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::vec::Vec;
 use uuid::Uuid;
 use super::{CommandSink, AxonServerHandle, wait_for_server, VecU8Message};
@@ -9,7 +8,7 @@ use crate::axon_server::SerializedObject;
 use crate::axon_server::command::Command;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
-pub async fn init() -> Result<AxonServerHandle, Box<dyn std::error::Error>> {
+pub async fn init() -> Result<AxonServerHandle> {
     let axon_connection = wait_for_server("proxy", 8124, "API").await.unwrap();
     debug!("Axon connection: {:?}", axon_connection);
     let command_sink = AxonServerHandle { display_name: axon_connection.id, conn: axon_connection.conn };
@@ -18,7 +17,7 @@ pub async fn init() -> Result<AxonServerHandle, Box<dyn std::error::Error>> {
 
 #[tonic::async_trait]
 impl CommandSink for AxonServerHandle {
-    async fn send_command(&self, command_type: &str, command: Box<&(dyn VecU8Message + Sync)>) -> Pin<Box<Result<(), EncodeError>>> {
+    async fn send_command(&self, command_type: &str, command: Box<&(dyn VecU8Message + Sync)>) -> Result<()> {
         debug!("Sending command: {:?}: {:?}", command_type, self.display_name);
         let mut buf = Vec::new();
         command.encode_u8(&mut buf).unwrap();
@@ -30,7 +29,7 @@ impl CommandSink for AxonServerHandle {
             data: buf,
         };
         submit_command(self, &serialized_command).await;
-        Box::pin(Ok(()))
+        Ok(())
     }
 }
 

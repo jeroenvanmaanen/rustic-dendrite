@@ -3,11 +3,8 @@ use log::{debug,error};
 use crate::axon_utils::{command_worker,wait_for_server};
 
 pub async fn handle_commands() {
-    match internal_handle_commands().await {
-        Err(e) => {
-            error!("Error while handling commands: {:?}", e);
-        }
-        _ => {}
+    if let Err(e) = internal_handle_commands().await {
+        error!("Error while handling commands: {:?}", e);
     }
     debug!("Stopped handling commands for example application");
 }

@@ -1,6 +1,4 @@
-use std::pin::Pin;
-
-use prost::EncodeError;
+use anyhow::{Result};
 use tonic::transport::Channel;
 
 mod command_submit;
@@ -20,12 +18,12 @@ pub struct AxonConnection {
 }
 
 pub trait VecU8Message {
-    fn encode_u8(&self, buf: &mut Vec<u8>) -> Result<(),EncodeError>;
+    fn encode_u8(&self, buf: &mut Vec<u8>) -> Result<()>;
 }
 
 #[tonic::async_trait]
 pub trait CommandSink {
-    async fn send_command(&self, command_type: &str, command: Box<&(dyn VecU8Message + Sync)>) -> Pin<Box<Result<(),EncodeError>>>;
+    async fn send_command(&self, command_type: &str, command: Box<&(dyn VecU8Message + Sync)>) -> Result<()>;
 }
 
 pub use command_submit::init as init_command_sender;
