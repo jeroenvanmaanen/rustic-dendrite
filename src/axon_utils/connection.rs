@@ -21,10 +21,9 @@ pub async fn wait_for_server(host: &str, port: u32, label: &str) -> Result<AxonC
 }
 
 async fn wait_for_connection(url: &str, label: &str) -> Channel {
-    let static_url: &'static str = Box::leak(url.to_string().into_boxed_str());
     let interval = time::Duration::from_secs(1);
     loop {
-        match try_to_connect(&static_url, label).await {
+        match try_to_connect(url, label).await {
             Ok(conn) => return conn,
             Err(e) => debug!(". ({:?})", e)
         }
@@ -33,8 +32,8 @@ async fn wait_for_connection(url: &str, label: &str) -> Channel {
     }
 }
 
-async fn try_to_connect(url: &'static str, label: &'_ str) -> Result<Channel, Box<dyn Error>> {
-    let conn = tonic::transport::Endpoint::new(url)?.connect().await?;
+async fn try_to_connect(url: &str, label: &str) -> Result<Channel, Box<dyn Error>> {
+    let conn = tonic::transport::Endpoint::from_shared(url.to_string())?.connect().await?;
     let mut client = PlatformServiceClient::new(conn.clone());
     let mut client_identification = ClientIdentification::default();
     client_identification.component_name = format!("Rust client {}", &*label);

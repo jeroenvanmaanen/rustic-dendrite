@@ -12,7 +12,7 @@ use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,Comman
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
-pub async fn command_worker(axon_connection: AxonConnection, commands: &'static[&'static str]) -> Result<(),String> {
+pub async fn command_worker(axon_connection: AxonConnection, commands: &[&str]) -> Result<(),String> {
     debug!("Command worker: start");
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let client_id = axon_connection.id.clone();
