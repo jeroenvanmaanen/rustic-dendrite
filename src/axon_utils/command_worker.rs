@@ -1,3 +1,4 @@
+use anyhow::{anyhow,Result};
 use async_stream::{stream};
 use futures_core::stream::{Stream};
 use log::{debug,error};
@@ -12,7 +13,7 @@ use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,Comman
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
-pub async fn command_worker(axon_connection: AxonConnection, commands: &[&str]) -> Result<(),String> {
+pub async fn command_worker(axon_connection: AxonConnection, commands: &[&str]) -> Result<()> {
     debug!("Command worker: start");
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let client_id = axon_connection.id.clone();
@@ -48,14 +49,14 @@ pub async fn command_worker(axon_connection: AxonConnection, commands: &[&str]) 
                     }
                     Err(e) => {
                         error!("Error from AxonServer: {:?}", e);
-                        return Err(e.code().to_string());
+                        return Err(anyhow!(e.code()));
                     }
                 }
             };
         }
         Err(e) => {
             error!("gRPC error: {:?}", e);
-            return Err(e.code().to_string());
+            return Err(anyhow!(e.code()));
         }
     }
 }

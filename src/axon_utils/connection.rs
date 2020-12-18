@@ -1,6 +1,6 @@
+use anyhow::{Result};
 use log::{debug};
 use std::{thread,time};
-use std::error::Error;
 use tonic::Request;
 use tonic::transport::Channel;
 use uuid::Uuid;
@@ -8,7 +8,7 @@ use super::AxonConnection;
 use crate::axon_server::control::{ClientIdentification};
 use crate::axon_server::control::platform_service_client::{PlatformServiceClient};
 
-pub async fn wait_for_server(host: &str, port: u32, label: &str) -> Result<AxonConnection, Box<dyn Error>> {
+pub async fn wait_for_server(host: &str, port: u32, label: &str) -> Result<AxonConnection> {
     let url = format!("http://{}:{}", host, port);
     let conn = wait_for_connection(&url, label).await;
     debug!("Connection: {:?}", conn);
@@ -32,7 +32,7 @@ async fn wait_for_connection(url: &str, label: &str) -> Channel {
     }
 }
 
-async fn try_to_connect(url: &str, label: &str) -> Result<Channel, Box<dyn Error>> {
+async fn try_to_connect(url: &str, label: &str) -> Result<Channel> {
     let conn = tonic::transport::Endpoint::from_shared(url.to_string())?.connect().await?;
     let mut client = PlatformServiceClient::new(conn.clone());
     let mut client_identification = ClientIdentification::default();
