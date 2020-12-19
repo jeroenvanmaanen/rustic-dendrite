@@ -1,4 +1,5 @@
-use anyhow::{Result};
+use anyhow::{anyhow,Result};
+use prost::Message;
 use tonic::transport::Channel;
 
 mod command_submit;
@@ -19,6 +20,14 @@ pub struct AxonConnection {
 
 pub trait VecU8Message {
     fn encode_u8(&self, buf: &mut Vec<u8>) -> Result<()>;
+}
+
+impl<T> VecU8Message for T
+where T: Message + Sized
+{
+    fn encode_u8(&self, buf: &mut Vec<u8>) -> Result<()> {
+        self.encode(buf).map_err(|e| anyhow!("Prost encode error: {:?}: {:?}", e.required_capacity(), e.remaining()))
+    }
 }
 
 #[tonic::async_trait]

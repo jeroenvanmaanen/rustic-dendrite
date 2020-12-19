@@ -1,23 +1,13 @@
-use anyhow::{anyhow,Result};
+use anyhow::{Result};
 use log::{debug};
-use prost::{Message};
 use tonic::{Request, Response, Status};
-use crate::axon_utils::{init_command_sender, CommandSink, AxonServerHandle, VecU8Message};
+use crate::axon_utils::{init_command_sender, CommandSink, AxonServerHandle};
 use crate::grpc_example::greeter_service_server::GreeterService;
 use crate::grpc_example::{Acknowledgement, Greeting, GreetCommand};
 
 #[derive(Debug)]
 pub struct GreeterServer {
     axon_server_handle: AxonServerHandle,
-}
-
-impl VecU8Message for GreetCommand
-    where
-        Self: Sized
-{
-    fn encode_u8(&self, buf: &mut Vec<u8>) -> Result<()> {
-        self.encode(buf).map_err(|e| anyhow!("Prost encode error: {:?}: {:?}", e.required_capacity(), e.remaining()))
-    }
 }
 
 #[tonic::async_trait]
