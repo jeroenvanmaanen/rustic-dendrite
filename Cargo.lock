@@ -697,6 +697,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-stream 0.3.0",
+ "bytes",
  "env_logger",
  "futures-core",
  "futures-util",

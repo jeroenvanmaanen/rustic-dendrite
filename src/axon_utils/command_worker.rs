@@ -1,7 +1,9 @@
 use anyhow::{anyhow,Result};
 use async_stream::{stream};
+use bytes::{Bytes};
 use futures_core::stream::{Stream};
-use log::{debug,error};
+use log::{debug,error,warn};
+use prost::{Message};
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Sender,Receiver, channel};
 use tonic::{Request};
@@ -12,6 +14,7 @@ use crate::axon_server::FlowControl;
 use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,CommandSubscription};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
+use crate::grpc_example::{GreetCommand};
 
 pub async fn command_worker(axon_connection: AxonConnection, commands: &[&str]) -> Result<()> {
     debug!("Command worker: start");
@@ -41,6 +44,19 @@ pub async fn command_worker(axon_connection: AxonConnection, commands: &[&str]) 
                         if let Some(axon_server::command::command_provider_inbound::Request::Command(command)) = inbound.request {
                             debug!("Incoming command: {:?}", command);
                             debug!("Do something useful ;-)");
+                            if command.name == "GreetCommand" {
+                                debug!("Recognized GreetCommand");
+                                let greet_command = command.payload
+                                    .map(|p| p.data)
+                                    .map(Bytes::from)
+                                    .map(GreetCommand::decode).map_or(Ok(None), |v| v.map(Some))?;
+                                debug!("GreetCommand: {:?}", greet_command);
+                                if let Some(greet_command) = greet_command {
+                                    debug!("GreetCommand: message: {:?}", greet_command.message);
+                                } else {
+                                    warn!("Could not decode GreetCommand");
+                                }
+                            }
                             tx.send(command.message_identifier).await.unwrap();
                         }
                     }
