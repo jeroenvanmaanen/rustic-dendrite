@@ -1,4 +1,5 @@
 use anyhow::{anyhow,Result};
+use bytes::Bytes;
 use futures_core::Future;
 use futures_util::__private::Pin;
 use prost::{Message, DecodeError};
@@ -29,7 +30,7 @@ pub trait HandlerRegistry: Send {
     fn insert<T: Send + Clone>(
         &mut self,
         name: String,
-        deserializer: &'static (dyn Fn(Vec<u8>) -> Result<T,prost::DecodeError> + Sync),
+        deserializer: &'static (dyn Fn(Bytes) -> Result<T,prost::DecodeError> + Sync),
         handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync)
     ) -> Result<()>;
     fn get(&self, name: &str) -> Option<&Box<dyn SubscriptionHandle>>;
@@ -43,7 +44,7 @@ impl HandlerRegistry for TheHandlerRegistry {
     fn insert<T: Send + Clone>(
         &mut self,
         name: String,
-        deserializer: &'static (dyn Fn(Vec<u8>) -> Result<T, DecodeError> + Sync),
+        deserializer: &'static (dyn Fn(Bytes) -> Result<T, DecodeError> + Sync),
         handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync)
     ) -> Result<()> {
         let key = name.clone();
@@ -74,7 +75,7 @@ pub fn empty_handler_registry() -> TheHandlerRegistry {
 struct Subscription<'a, T>
 {
     pub name: String,
-    pub deserializer: &'a (dyn Fn(Vec<u8>) -> Result<T,prost::DecodeError> + Sync),
+    pub deserializer: &'a (dyn Fn(Bytes) -> Result<T,prost::DecodeError> + Sync),
     pub handler: &'a (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync),
 }
 
@@ -92,7 +93,7 @@ impl<T: Send + Clone> SubscriptionHandle for Subscription<'static, T>
         self.name.clone()
     }
     async fn handle(&self, buf: Vec<u8>) -> Result<()> {
-        let message: T = (self.deserializer)(buf)?;
+        let message: T = (self.deserializer)(Bytes::from(buf))?;
         (self.handler)(message).await
     }
 
