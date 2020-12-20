@@ -26,7 +26,7 @@ async fn internal_handle_commands() -> Result<()> {
     command_worker(axon_connection, handler_registry).await.context("Error while handling commands")
 }
 
-async fn handle_greet_command (command: GreetCommand) -> Result<()> {
+async fn handle_greet_command (command: GreetCommand) -> Result<Option<()>> {
     debug!("Greet command handler: {:?}", command);
-    Ok(())
+    Ok(None)
 }

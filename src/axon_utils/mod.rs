@@ -38,33 +38,34 @@ pub struct AxonConnection {
 //         &(|c| Box::pin(handle_greet_command(c)))
 //     )?;
 // ```
-pub trait HandlerRegistry: Send {
-    fn insert<T: Send + Clone>(
+pub trait HandlerRegistry<W>: Send {
+    fn insert<T: Send + Clone, R: Clone>(
         &mut self,
         name: &str,
         deserializer: &'static (dyn Fn(Bytes) -> Result<T,prost::DecodeError> + Sync),
-        handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync)
+        handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<Option<R>>> + Send>> + Sync)
     ) -> Result<()>;
-    fn get(&self, name: &str) -> Option<&Box<dyn SubscriptionHandle>>;
+    fn get(&self, name: &str) -> Option<&Box<dyn SubscriptionHandle<W>>>;
 }
 
-pub struct TheHandlerRegistry {
-    handlers: HashMap<String,Box<dyn SubscriptionHandle>>,
+pub struct TheHandlerRegistry<W: Clone> {
+    handlers: HashMap<String,Box<dyn SubscriptionHandle<W>>>,
 }
 
-impl HandlerRegistry for TheHandlerRegistry {
-    fn insert<T: Send + Clone>(
+impl<W: Clone + 'static> HandlerRegistry<W> for TheHandlerRegistry<W> {
+    fn insert<T: Send + Clone, R: Clone>(
         &mut self,
         name: &str,
         deserializer: &'static (dyn Fn(Bytes) -> Result<T, DecodeError> + Sync),
-        handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync)
+        handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<Option<R>>> + Send>> + Sync)
     ) -> Result<()> {
         let name = name.to_string();
         let key = name.clone();
-        let handle: Box<dyn SubscriptionHandle> = Box::new(Subscription{
+        let handle: Box<dyn SubscriptionHandle<W>> = Box::new(Subscription{
             name,
             deserializer,
-            handler
+            handler,
+            wrapper: None,
         });
         if (*self).handlers.contains_key(&key) {
             return Err(anyhow!("Handler already registered: {:?}", key))
@@ -73,45 +74,51 @@ impl HandlerRegistry for TheHandlerRegistry {
         Ok(())
     }
 
-    fn get(&self, name: &str) -> Option<&Box<dyn SubscriptionHandle>> {
+    fn get(&self, name: &str) -> Option<&Box<dyn SubscriptionHandle<W>>> {
         (*self).handlers.get(name)
     }
 }
 
-pub fn empty_handler_registry() -> TheHandlerRegistry {
+pub fn empty_handler_registry<W: Clone>() -> TheHandlerRegistry<W> {
     TheHandlerRegistry {
-        handlers: HashMap::new()
+        handlers: HashMap::new(),
     }
 }
 
 #[derive(Clone)]
-struct Subscription<'a, T>
+struct Subscription<'a, T, R, W>
 {
     pub name: String,
     pub deserializer: &'a (dyn Fn(Bytes) -> Result<T,prost::DecodeError> + Sync),
-    pub handler: &'a (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync),
+    pub handler: &'a (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<Option<R>>> + Send>> + Sync),
+    pub wrapper: Option<&'a (dyn Fn(R) -> Result<W> + Sync)>,
 }
 
 #[tonic::async_trait]
-pub trait SubscriptionHandle: Send + Sync {
+pub trait SubscriptionHandle<W>: Send + Sync {
     fn name(&self) -> String;
-    async fn handle(&self, buf: Vec<u8>) -> Result<()>;
-    fn box_clone(&self) -> Box<dyn SubscriptionHandle>;
+    async fn handle(&self, buf: Vec<u8>) -> Result<Option<W>>;
+    fn box_clone(&self) -> Box<dyn SubscriptionHandle<W>>;
 }
 
 #[tonic::async_trait]
-impl<T: Send + Clone> SubscriptionHandle for Subscription<'static, T>
+impl<T: Send + Clone, R: Clone, W: Clone> SubscriptionHandle<W> for Subscription<'static, T, R, W>
 {
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    async fn handle(&self, buf: Vec<u8>) -> Result<()> {
+    async fn handle(&self, buf: Vec<u8>) -> Result<Option<W>> {
         let message: T = (self.deserializer)(Bytes::from(buf))?;
-        (self.handler)(message).await
+        if let Some(result) = (self.handler)(message).await? {
+            if let Some(wrapper) = self.wrapper {
+                return Ok(Some((wrapper)(result)?));
+            }
+        }
+        Ok(None)
     }
 
-    fn box_clone(&self) -> Box<dyn SubscriptionHandle> {
+    fn box_clone(&self) -> Box<dyn SubscriptionHandle<W>> {
         Box::from(Subscription::clone(&self))
     }
 }

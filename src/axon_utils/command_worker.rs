@@ -13,7 +13,7 @@ use crate::axon_server::command::{command_provider_inbound,Command};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
-pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry) -> Result<()> {
+pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry<Box<Vec<u8>>>) -> Result<()> {
     debug!("Command worker: start");
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let client_id = axon_connection.id.clone();
@@ -39,8 +39,9 @@ pub async fn command_worker(axon_connection: AxonConnection, handler_registry: T
             Ok(Some(inbound)) => {
                 debug!("Inbound message: {:?}", inbound);
                 if let Some(command_provider_inbound::Request::Command(command)) = inbound.request {
-                    if let Err(e) = handle(&command, &handler_registry).await {
-                        warn!("Error while handling command: {:?}", e);
+                    match handle(&command, &handler_registry).await {
+                        Err(e) => warn!("Error while handling command: {:?}", e),
+                        Ok(result) => debug!("Result from command handler: {:?}", result),
                     }
                     tx.send(command.message_identifier).await.unwrap();
                 }
@@ -56,7 +57,7 @@ pub async fn command_worker(axon_connection: AxonConnection, handler_registry: T
     }
 }
 
-async fn handle(command: &Command, handler_registry: &TheHandlerRegistry) -> Result<()> {
+async fn handle<W: Clone + 'static>(command: &Command, handler_registry: &TheHandlerRegistry<W>) -> Result<Option<W>> {
     debug!("Incoming command: {:?}", command);
     let handler = handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
     let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
