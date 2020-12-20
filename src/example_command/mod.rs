@@ -18,7 +18,7 @@ async fn internal_handle_commands() -> Result<()> {
 
     let mut handler_registry = empty_handler_registry();
     handler_registry.insert(
-        "GreetCommand".to_string(),
+        "GreetCommand",
         &GreetCommand::decode,
         &(|c| Box::pin(handle_greet_command(c)))
     )?;

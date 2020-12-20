@@ -29,7 +29,7 @@ pub struct AxonConnection {
 pub trait HandlerRegistry: Send {
     fn insert<T: Send + Clone>(
         &mut self,
-        name: String,
+        name: &str,
         deserializer: &'static (dyn Fn(Bytes) -> Result<T,prost::DecodeError> + Sync),
         handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync)
     ) -> Result<()>;
@@ -43,10 +43,11 @@ pub struct TheHandlerRegistry {
 impl HandlerRegistry for TheHandlerRegistry {
     fn insert<T: Send + Clone>(
         &mut self,
-        name: String,
+        name: &str,
         deserializer: &'static (dyn Fn(Bytes) -> Result<T, DecodeError> + Sync),
         handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync)
     ) -> Result<()> {
+        let name = name.to_string();
         let key = name.clone();
         let handle: Box<dyn SubscriptionHandle> = Box::new(Subscription{
             name,
