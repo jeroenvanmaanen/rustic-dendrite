@@ -29,8 +29,8 @@ pub trait HandlerRegistry: Send {
     fn insert<T: Send + Clone>(
         &mut self,
         name: String,
-        deserializer: &'static (dyn Fn(Vec<u8>) -> Result<T,prost::DecodeError> + Sync + 'static),
-        handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync + 'static)
+        deserializer: &'static (dyn Fn(Vec<u8>) -> Result<T,prost::DecodeError> + Sync),
+        handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync)
     ) -> Result<()>;
     fn get(&self, name: &str) -> Option<&Box<dyn SubscriptionHandle>>;
 }
@@ -59,7 +59,7 @@ impl HandlerRegistry for TheHandlerRegistry {
         Ok(())
     }
 
-    fn get(&self, name: &str) -> Option<&Box<dyn SubscriptionHandle + 'static>> {
+    fn get(&self, name: &str) -> Option<&Box<dyn SubscriptionHandle>> {
         (*self).handlers.get(name)
     }
 }
@@ -74,8 +74,8 @@ pub fn empty_handler_registry() -> TheHandlerRegistry {
 struct Subscription<'a, T>
 {
     pub name: String,
-    pub deserializer: &'a (dyn Fn(Vec<u8>) -> Result<T,prost::DecodeError> + Sync + 'static),
-    pub handler: &'a (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync + 'static),
+    pub deserializer: &'a (dyn Fn(Vec<u8>) -> Result<T,prost::DecodeError> + Sync),
+    pub handler: &'a (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<()>> + Send>> + Sync),
 }
 
 #[tonic::async_trait]
