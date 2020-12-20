@@ -26,6 +26,18 @@ pub struct AxonConnection {
     pub conn: Channel,
 }
 
+// I tried to make it possible to pass an `async fn` directly to parameter `handler`, but the return
+// type after desugaring is unnameable
+// (https://internals.rust-lang.org/t/naming-the-return-type-of-an-async-function/10085).
+// So it has to be wrapped in a closure that `Box::pin`s the return value, lik this:
+//
+// ```rust
+//     handler_registry.insert(
+//         "GreetCommand",
+//         &GreetCommand::decode,
+//         &(|c| Box::pin(handle_greet_command(c)))
+//     )?;
+// ```
 pub trait HandlerRegistry: Send {
     fn insert<T: Send + Clone>(
         &mut self,
