@@ -1,28 +1,28 @@
 use anyhow::{anyhow,Result};
 use async_stream::{stream};
-use bytes::{Bytes};
 use futures_core::stream::{Stream};
 use log::{debug,error,warn};
-use prost::{Message};
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Sender,Receiver, channel};
 use tonic::{Request};
 use uuid::Uuid;
-use super::AxonConnection;
+use super::{AxonConnection,HandlerRegistry,TheHandlerRegistry};
 use crate::{axon_server};
 use crate::axon_server::FlowControl;
 use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,CommandSubscription};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
-use crate::grpc_example::{GreetCommand};
 
-pub async fn command_worker(axon_connection: AxonConnection, commands: &[&str]) -> Result<()> {
+pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry) -> Result<()> {
     debug!("Command worker: start");
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let client_id = axon_connection.id.clone();
 
+    let subscription = handler_registry.get("GreetCommand");
+    debug!("Subscription: {:?}", subscription.map(|h| h.name()));
+
     let mut command_vec: Vec<String> = vec![];
-    command_vec.extend(commands.iter().map(|x| String::from(*x)));
+    command_vec.extend(handler_registry.handlers.keys().map(|x| x.clone()));
     let command_box = Box::new(command_vec);
 
     let (mut tx, rx): (Sender<String>, Receiver<String>) = channel(10);
@@ -43,19 +43,12 @@ pub async fn command_worker(axon_connection: AxonConnection, commands: &[&str]) 
                         debug!("Inbound message: {:?}", inbound);
                         if let Some(axon_server::command::command_provider_inbound::Request::Command(command)) = inbound.request {
                             debug!("Incoming command: {:?}", command);
-                            debug!("Do something useful ;-)");
-                            if command.name == "GreetCommand" {
-                                debug!("Recognized GreetCommand");
-                                let greet_command = command.payload
-                                    .map(|p| p.data)
-                                    .map(Bytes::from)
-                                    .map(GreetCommand::decode).map_or(Ok(None), |v| v.map(Some))?;
-                                debug!("GreetCommand: {:?}", greet_command);
-                                if let Some(greet_command) = greet_command {
-                                    debug!("GreetCommand: message: {:?}", greet_command.message);
-                                } else {
-                                    warn!("Could not decode GreetCommand");
+                            if let Some(handler) = handler_registry.get(&command.name) {
+                                if let Some(data) = command.payload.map(|p| p.data) {
+                                    handler.handle(data).await?;
                                 }
+                            } else {
+                                warn!("No handler for: {:?}", command.name);
                             }
                             tx.send(command.message_identifier).await.unwrap();
                         }
