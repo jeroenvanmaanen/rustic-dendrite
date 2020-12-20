@@ -7,9 +7,9 @@ use tokio::sync::mpsc::{Sender,Receiver, channel};
 use tonic::{Request};
 use uuid::Uuid;
 use super::{AxonConnection,HandlerRegistry,TheHandlerRegistry};
-use crate::{axon_server};
 use crate::axon_server::FlowControl;
 use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,CommandSubscription};
+use crate::axon_server::command::{command_provider_inbound,Command};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
@@ -30,44 +30,37 @@ pub async fn command_worker(axon_connection: AxonConnection, handler_registry: T
     let outbound = create_output_stream(client_id, command_box, rx);
 
     debug!("Command worker: calling open_stream");
-    let result = client.open_stream(Request::new(outbound)).await;
-    debug!("Stream result: {:?}", result);
+    let response = client.open_stream(Request::new(outbound)).await?;
+    debug!("Stream response: {:?}", response);
 
-    match result {
-        Ok(response) => {
-            let mut inbound = response.into_inner();
-            loop {
-                let message = inbound.message().await;
-                match message {
-                    Ok(Some(inbound)) => {
-                        debug!("Inbound message: {:?}", inbound);
-                        if let Some(axon_server::command::command_provider_inbound::Request::Command(command)) = inbound.request {
-                            debug!("Incoming command: {:?}", command);
-                            if let Some(handler) = handler_registry.get(&command.name) {
-                                if let Some(data) = command.payload.map(|p| p.data) {
-                                    handler.handle(data).await?;
-                                }
-                            } else {
-                                warn!("No handler for: {:?}", command.name);
-                            }
-                            tx.send(command.message_identifier).await.unwrap();
-                        }
+    let mut inbound = response.into_inner();
+    loop {
+        match inbound.message().await {
+            Ok(Some(inbound)) => {
+                debug!("Inbound message: {:?}", inbound);
+                if let Some(command_provider_inbound::Request::Command(command)) = inbound.request {
+                    if let Err(e) = handle(&command, &handler_registry).await {
+                        warn!("Error while handling command: {:?}", e);
                     }
-                    Ok(None) => {
-                        debug!("None incoming");
-                    }
-                    Err(e) => {
-                        error!("Error from AxonServer: {:?}", e);
-                        return Err(anyhow!(e.code()));
-                    }
+                    tx.send(command.message_identifier).await.unwrap();
                 }
-            };
-        }
-        Err(e) => {
-            error!("gRPC error: {:?}", e);
-            return Err(anyhow!(e.code()));
+            }
+            Ok(None) => {
+                debug!("None incoming");
+            }
+            Err(e) => {
+                error!("Error from AxonServer: {:?}", e);
+                return Err(anyhow!(e.code()));
+            }
         }
     }
+}
+
+async fn handle(command: &Command, handler_registry: &TheHandlerRegistry) -> Result<()> {
+    debug!("Incoming command: {:?}", command);
+    let handler = handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
+    let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
+    handler.handle(data).await
 }
 
 fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx: Receiver<String>) -> impl Stream<Item = CommandProviderOutbound> {

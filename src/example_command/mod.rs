@@ -23,9 +23,7 @@ async fn internal_handle_commands() -> Result<()> {
         &(|c| Box::pin(handle_greet_command(c)))
     )?;
 
-    command_worker(axon_connection, handler_registry).await.context("Error while handling commands")?;
-
-    Ok(())
+    command_worker(axon_connection, handler_registry).await.context("Error while handling commands")
 }
 
 async fn handle_greet_command (command: GreetCommand) -> Result<()> {

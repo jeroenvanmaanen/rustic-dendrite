@@ -105,6 +105,7 @@ impl<T: Send + Clone> SubscriptionHandle for Subscription<'static, T>
     fn name(&self) -> String {
         self.name.clone()
     }
+
     async fn handle(&self, buf: Vec<u8>) -> Result<()> {
         let message: T = (self.deserializer)(Bytes::from(buf))?;
         (self.handler)(message).await
