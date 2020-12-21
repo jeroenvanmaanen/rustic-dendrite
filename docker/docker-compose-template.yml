@@ -66,13 +66,13 @@ services:
         published: ${UI_SERVER_PORT}
     depends_on:
       - axon-server
-  grpc-swagger:
-    image: ${DOCKER_REPOSITORY}/grpc-swagger
-    networks:
-      - ${ENSEMBLE_NAME}
-    ports:
-      - target: '8080'
-        published: '8123'
+#  grpc-swagger:
+#    image: ${DOCKER_REPOSITORY}/grpc-swagger
+#    networks:
+#      - ${ENSEMBLE_NAME}
+#    ports:
+#      - target: '8080'
+#        published: '8123'
   elastic-search:
     image: elasticsearch:${ELASTIC_SEARCH_VERSION}
     init: true
