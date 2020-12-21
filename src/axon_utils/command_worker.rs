@@ -2,11 +2,12 @@ use anyhow::{anyhow,Result};
 use async_stream::{stream};
 use futures_core::stream::{Stream};
 use log::{debug,error,warn};
+use prost::Message;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Sender,Receiver, channel};
 use tonic::{Request};
 use uuid::Uuid;
-use super::AxonConnection;
+use super::{AxonConnection, axon_serialize};
 use super::handler_registry::{HandlerRegistry,TheHandlerRegistry};
 use crate::axon_server::{ErrorMessage,FlowControl,SerializedObject};
 use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,CommandSubscription};
@@ -14,13 +15,40 @@ use crate::axon_server::command::{command_provider_inbound,Command};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
+pub fn emit_events() -> EmitEventsAndResponse {
+    EmitEventsAndResponse {
+        events: Vec::new(),
+        response: None,
+    }
+}
+
+pub fn emit_events_and_response<T: Message>(type_name: &str, response: &T) -> Result<EmitEventsAndResponse> {
+    let payload = axon_serialize(type_name, response)?;
+    Ok(EmitEventsAndResponse {
+        events: Vec::new(),
+        response: Some(payload),
+    })
+}
+
+#[derive(Clone,Debug)]
+pub struct EmitEventsAndResponse {
+    events: Vec<SerializedObject>,
+    response: Option<SerializedObject>,
+}
+
+pub fn emit<T: Message>(holder: &mut EmitEventsAndResponse, type_name: &str, event: &T) -> Result<()> {
+    let payload = axon_serialize(type_name, event)?;
+    holder.events.push(payload);
+    Ok(())
+}
+
 #[derive(Debug)]
 struct AxonCommandResult {
     message_identifier: String,
-    result: Result<Option<SerializedObject>>,
+    result: Result<Option<EmitEventsAndResponse>>,
 }
 
-pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry<SerializedObject>) -> Result<()> {
+pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry<EmitEventsAndResponse>) -> Result<()> {
     debug!("Command worker: start");
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let client_id = axon_connection.id.clone();
@@ -127,7 +155,13 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx
             };
             match axon_command_result.result {
                 Ok(result) => {
-                    response.payload = result;
+                    response.payload = result
+                        .map(|r| {
+                            debug!("Emit events: {:?}", r.events);
+                            // TODO: actually send these events to AxonServer!
+                            r
+                        })
+                        .map(|r| r.response).flatten();
                 }
                 Err(e) => {
                     response.error_code = "ERROR".to_string();

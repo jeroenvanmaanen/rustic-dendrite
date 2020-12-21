@@ -1,8 +1,8 @@
 use anyhow::{Context,Result,anyhow};
 use log::{debug,error};
 use prost::{Message};
-use crate::axon_utils::{HandlerRegistry, axon_serialize, command_worker, empty_handler_registry, wait_for_server};
-use crate::grpc_example::{Acknowledgement,GreetCommand,RecordCommand,StopCommand};
+use crate::axon_utils::{EmitEventsAndResponse, HandlerRegistry, command_worker, emit, emit_events_and_response, empty_handler_registry, wait_for_server};
+use crate::grpc_example::{Acknowledgement,GreetCommand,GreetedEvent,RecordCommand,StopCommand};
 
 pub async fn handle_commands() {
     if let Err(e) = internal_handle_commands().await {
@@ -21,9 +21,7 @@ async fn internal_handle_commands() -> Result<()> {
     handler_registry.insert_with_output(
         "GreetCommand",
         &GreetCommand::decode,
-        &(|c| Box::pin(handle_greet_command(c))),
-        "Acknowledgement",
-        &axon_serialize
+        &(|c| Box::pin(handle_greet_command(c)))
     )?;
 
     handler_registry.insert(
@@ -41,15 +39,21 @@ async fn internal_handle_commands() -> Result<()> {
     command_worker(axon_connection, handler_registry).await.context("Error while handling commands")
 }
 
-async fn handle_greet_command (command: GreetCommand) -> Result<Option<Acknowledgement>> {
+async fn handle_greet_command (command: GreetCommand) -> Result<Option<EmitEventsAndResponse>> {
     debug!("Greet command handler: {:?}", command);
-    let message = command.message.map(|g| g.message).unwrap_or("-/-".to_string());
+    let greeting = command.message;
+    let message = greeting.clone().map(|g| g.message).unwrap_or("-/-".to_string());
     if message == "ERROR" {
         return Err(anyhow!("Panicked at reading 'ERROR'"));
     }
-    Ok(Some(Acknowledgement {
+    let mut emit_events = emit_events_and_response("Acknowledgement", &Acknowledgement {
         message: format!("ACK! {}", message),
-    }))
+    })?;
+    emit(&mut emit_events, "GreetedEvent", &GreetedEvent {
+        message: greeting,
+    })?;
+    debug!("Emit events and response: {:?}", emit_events);
+    Ok(Some(emit_events))
 }
 
 async fn handle_record_command (command: RecordCommand) -> Result<()> {

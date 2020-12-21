@@ -30,7 +30,13 @@ pub trait HandlerRegistry<W>: Send {
         deserializer: &'static (dyn Fn(Bytes) -> Result<T,prost::DecodeError> + Sync),
         handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<Option<R>>> + Send>> + Sync),
     ) -> Result<()>;
-    fn insert_with_output<T: Send + Clone, R: Clone>(
+    fn insert_with_output<T: Send + Clone>(
+        &mut self,
+        name: &str,
+        deserializer: &'static (dyn Fn(Bytes) -> Result<T,prost::DecodeError> + Sync),
+        handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<Option<W>>> + Send>> + Sync)
+    ) -> Result<()>;
+    fn insert_with_mapped_output<T: Send + Clone, R: Clone>(
         &mut self,
         name: &str,
         deserializer: &'static (dyn Fn(Bytes) -> Result<T,prost::DecodeError> + Sync),
@@ -87,7 +93,31 @@ impl<W: Clone + 'static> HandlerRegistry<W> for TheHandlerRegistry<W> {
         Ok(())
     }
 
-    fn insert_with_output<T: Send + Clone, R: Clone>(
+    fn insert_with_output<T: Send + Clone>(
+        &mut self,
+        name: &str,
+        deserializer: &'static (dyn Fn(Bytes) -> Result<T, DecodeError> + Sync),
+        handler: &'static (dyn Fn(T) -> Pin<Box<dyn Future<Output=Result<Option<W>>> + Send>> + Sync)
+    ) -> Result<()> {
+        let name = name.to_string();
+        let key = name.clone();
+        let handle: Box<dyn SubscriptionHandle<W>> = Box::new(Subscription{
+            name,
+            deserializer,
+            handler,
+            wrapper: Some(ResponseWrapper {
+                type_name: "UNKNOWN".to_string(),
+                convert: &(|_,r| Ok(r.clone()))
+            }),
+        });
+        if (*self).handlers.contains_key(&key) {
+            return Err(anyhow!("Handler already registered: {:?}", key))
+        }
+        (*self).handlers.insert(key.clone(), handle.box_clone());
+        Ok(())
+    }
+
+    fn insert_with_mapped_output<T: Send + Clone, R: Clone>(
         &mut self,
         name: &str,
         deserializer: &'static (dyn Fn(Bytes) -> Result<T, DecodeError> + Sync),
