@@ -17,13 +17,27 @@ VALUE='Tonic'
 case "$1" in
 --greet)
   PROTO="grpc_example.proto"
-  PORT='8181'
+  PORT='3000'
   URL='grpc_example.GreeterService/Greet'
   shift
   ;;
---proxy)
+--record)
   PROTO="grpc_example.proto"
   PORT='3000'
+  URL='grpc_example.GreeterService/Record'
+  VARIABLE=''
+  shift
+  ;;
+--stop)
+  PROTO="grpc_example.proto"
+  PORT='3000'
+  URL='grpc_example.GreeterService/Stop'
+  VARIABLE=''
+  shift
+  ;;
+--direct)
+  PROTO="grpc_example.proto"
+  PORT='8181'
   URL='grpc_example.GreeterService/Greet'
   shift
   ;;
@@ -45,7 +59,12 @@ then
   shift
 fi
 
-PAYLOAD="$(echo "{'${VARIABLE}':'${VALUE}'}" | tr \'\" \"\')"
+if [[ -z "${VARIABLE}" ]]
+then
+  PAYLOAD='{}'
+else
+  PAYLOAD="$(echo "{'${VARIABLE}':'${VALUE}'}" | tr \'\" \"\')"
+fi
 
 docker run --rm -v "${PROJECT}:${PROJECT}" -w "${PROJECT}" -ti \
   fullstorydev/grpcurl -plaintext -import-path "${PROJECT}/proto" -proto "${PROTO}" \

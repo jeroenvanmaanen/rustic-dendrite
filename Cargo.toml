@@ -4,14 +4,6 @@ version = "0.1.0"
 authors = ["jeroen"]
 edition = "2018"
 
-[[bin]] # Bin to run the HelloWorld gRPC server
-name = "hello-world-server"
-path = "src/server.rs"
-
-[[bin]] # Bin to run the HelloWorld gRPC client
-name = "hello-world-client"
-path = "src/client.rs"
-
 [dependencies]
 anyhow = "1.0"
 async-stream = "0.3.0"

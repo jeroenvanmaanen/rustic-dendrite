@@ -7,6 +7,8 @@ package grpc_example;
 /* The GreeterService defines the gRPC requests for greeting AxonServer. */
 service GreeterService {
     rpc Greet (Greeting) returns (Acknowledgement) {}
+    rpc Record (Empty) returns (Empty) {}
+    rpc Stop (Empty) returns (Empty) {}
 /*
     rpc Greetings (Empty) returns (stream Greeting) {}
     rpc Record (Empty) returns (Empty) {}
