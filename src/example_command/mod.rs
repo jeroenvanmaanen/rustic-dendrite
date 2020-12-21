@@ -1,7 +1,7 @@
-use anyhow::{Context,Result};
+use anyhow::{Context,Result,anyhow};
 use log::{debug,error};
 use prost::{Message};
-use crate::axon_utils::{HandlerRegistry, command_worker, empty_handler_registry, proto_encode, wait_for_server};
+use crate::axon_utils::{HandlerRegistry, axon_serialize, command_worker, empty_handler_registry, wait_for_server};
 use crate::grpc_example::{Acknowledgement,GreetCommand,RecordCommand,StopCommand};
 
 pub async fn handle_commands() {
@@ -22,7 +22,8 @@ async fn internal_handle_commands() -> Result<()> {
         "GreetCommand",
         &GreetCommand::decode,
         &(|c| Box::pin(handle_greet_command(c))),
-        Some(&proto_encode)
+        "Acknowledgement",
+        &axon_serialize
     )?;
 
     handler_registry.insert(
@@ -42,8 +43,12 @@ async fn internal_handle_commands() -> Result<()> {
 
 async fn handle_greet_command (command: GreetCommand) -> Result<Option<Acknowledgement>> {
     debug!("Greet command handler: {:?}", command);
+    let message = command.message.map(|g| g.message).unwrap_or("-/-".to_string());
+    if message == "ERROR" {
+        return Err(anyhow!("Panicked at reading 'ERROR'"));
+    }
     Ok(Some(Acknowledgement {
-        message: "ACK!".to_string(),
+        message: format!("ACK! {}", message),
     }))
 }
 

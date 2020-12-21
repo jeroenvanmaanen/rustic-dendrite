@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::{Result,anyhow};
 use log::{debug};
 use std::collections::HashMap;
 use std::vec::Vec;
@@ -17,7 +17,7 @@ pub async fn init() -> Result<AxonServerHandle> {
 
 #[tonic::async_trait]
 impl CommandSink for AxonServerHandle {
-    async fn send_command(&self, command_type: &str, command: Box<&(dyn VecU8Message + Sync)>) -> Result<()> {
+    async fn send_command(&self, command_type: &str, command: Box<&(dyn VecU8Message + Sync)>) -> Result<Option<SerializedObject>> {
         debug!("Sending command: {:?}: {:?}", command_type, self.display_name);
         let mut buf = Vec::new();
         command.encode_u8(&mut buf).unwrap();
@@ -28,12 +28,11 @@ impl CommandSink for AxonServerHandle {
             revision: "1".to_string(),
             data: buf,
         };
-        submit_command(self, &serialized_command).await;
-        Ok(())
+        submit_command(self, &serialized_command).await
     }
 }
 
-async fn submit_command(this: &AxonServerHandle, message: &SerializedObject) {
+async fn submit_command(this: &AxonServerHandle, message: &SerializedObject) -> Result<Option<SerializedObject>> {
     debug!("Message: {:?}", message);
     let this = this.clone();
     let conn = this.conn;
@@ -50,6 +49,11 @@ async fn submit_command(this: &AxonServerHandle, message: &SerializedObject) {
         processing_instructions: Vec::new(),
         timestamp: 0,
     };
-    let response = client.dispatch(command).await.unwrap();
+    let response = client.dispatch(command).await?;
     debug!("Response: {:?}", response);
+    let response = response.into_inner();
+    if let Some(error_message) = response.error_message {
+        return Err(anyhow!(error_message.message));
+    }
+    Ok(response.payload)
 }

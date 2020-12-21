@@ -7,13 +7,19 @@ use tokio::sync::mpsc::{Sender,Receiver, channel};
 use tonic::{Request};
 use uuid::Uuid;
 use super::{AxonConnection,HandlerRegistry,TheHandlerRegistry};
-use crate::axon_server::FlowControl;
+use crate::axon_server::{ErrorMessage,FlowControl,SerializedObject};
 use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,CommandSubscription};
 use crate::axon_server::command::{command_provider_inbound,Command};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 
-pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry<Box<Vec<u8>>>) -> Result<()> {
+#[derive(Debug)]
+struct AxonCommandResult {
+    message_identifier: String,
+    result: Result<Option<SerializedObject>>,
+}
+
+pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry<SerializedObject>) -> Result<()> {
     debug!("Command worker: start");
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let client_id = axon_connection.id.clone();
@@ -25,7 +31,7 @@ pub async fn command_worker(axon_connection: AxonConnection, handler_registry: T
     command_vec.extend(handler_registry.handlers.keys().map(|x| x.clone()));
     let command_box = Box::new(command_vec);
 
-    let (mut tx, rx): (Sender<String>, Receiver<String>) = channel(10);
+    let (mut tx, rx): (Sender<AxonCommandResult>, Receiver<AxonCommandResult>) = channel(10);
 
     let outbound = create_output_stream(client_id, command_box, rx);
 
@@ -39,11 +45,16 @@ pub async fn command_worker(axon_connection: AxonConnection, handler_registry: T
             Ok(Some(inbound)) => {
                 debug!("Inbound message: {:?}", inbound);
                 if let Some(command_provider_inbound::Request::Command(command)) = inbound.request {
-                    match handle(&command, &handler_registry).await {
+                    let result = handle(&command, &handler_registry).await;
+                    match result.as_ref() {
                         Err(e) => warn!("Error while handling command: {:?}", e),
                         Ok(result) => debug!("Result from command handler: {:?}", result),
                     }
-                    tx.send(command.message_identifier).await.unwrap();
+                    let axon_command_result = AxonCommandResult {
+                        message_identifier: command.message_identifier,
+                        result
+                    };
+                    tx.send(axon_command_result).await.unwrap();
                 }
             }
             Ok(None) => {
@@ -64,7 +75,7 @@ async fn handle<W: Clone + 'static>(command: &Command, handler_registry: &TheHan
     handler.handle(data).await
 }
 
-fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx: Receiver<String>) -> impl Stream<Item = CommandProviderOutbound> {
+fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx: Receiver<AxonCommandResult>) -> impl Stream<Item = CommandProviderOutbound> {
     stream! {
         debug!("Command worker: stream: start: {:?}", rx);
         for command_name in command_box.iter() {
@@ -101,18 +112,32 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx
         };
         yield instruction.to_owned();
 
-        while let Some(command_id) = rx.recv().await {
-            debug!("Send command response: {:?}", command_id);
+        while let Some(axon_command_result) = rx.recv().await {
+            debug!("Send command response: {:?}", axon_command_result);
             let response_id = Uuid::new_v4();
-            let response = CommandResponse {
+            let mut response = CommandResponse {
                 message_identifier: format!("{:?}", response_id.to_simple()),
-                request_identifier: command_id.clone(),
+                request_identifier: axon_command_result.message_identifier.clone(),
                 payload: None,
                 error_code: "".to_string(),
                 error_message: None,
                 meta_data: HashMap::new(),
                 processing_instructions: Vec::new(),
             };
+            match axon_command_result.result {
+                Ok(result) => {
+                    response.payload = result;
+                }
+                Err(e) => {
+                    response.error_code = "ERROR".to_string();
+                    response.error_message = Some(ErrorMessage {
+                        message: e.to_string(),
+                        location: "".to_string(),
+                        details: Vec::new(),
+                        error_code: "ERROR".to_string(),
+                    });
+                }
+            }
             let instruction_id = Uuid::new_v4();
             let instruction = CommandProviderOutbound {
                 instruction_id: format!("{:?}", instruction_id.to_simple()),

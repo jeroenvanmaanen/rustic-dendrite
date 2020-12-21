@@ -1,5 +1,7 @@
 use anyhow::{Result};
+use bytes::Bytes;
 use log::{debug};
+use prost::Message;
 use tonic::{Request, Response, Status};
 use crate::axon_utils::{init_command_sender, CommandSink, AxonServerHandle};
 use crate::grpc_example::greeter_service_server::GreeterService;
@@ -25,13 +27,20 @@ impl GreeterService for GreeterServer {
             message: Some(inner_request),
         };
 
-        self.axon_server_handle.send_command("GreetCommand", Box::new(&command)).await.map_err(|e| Status::unknown(e.to_string()))?;
+        if let Some(serialized) = self.axon_server_handle.send_command("GreetCommand", Box::new(&command)).await
+            .map_err(|e| Status::unknown(e.to_string()))?
+        {
+            let reply_from_command_handler = Message::decode(Bytes::from(serialized.data))
+                .map_err(|e| Status::unknown(e.to_string()))?;
+            debug!("Reply from command handler: {:?}", reply_from_command_handler);
+            return Ok(Response::new(reply_from_command_handler));
+        }
 
-        let reply = Acknowledgement {
+        let default_reply = Acknowledgement {
             message: format!("Hello {}!", result_message).into(),
         };
 
-        Ok(Response::new(reply))
+        Ok(Response::new(default_reply))
     }
 
     async fn record(
