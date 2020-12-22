@@ -46,7 +46,7 @@ async fn handle_greet_command (command: GreetCommand) -> Result<Option<EmitEvent
     if message == "ERROR" {
         return Err(anyhow!("Panicked at reading 'ERROR'"));
     }
-    let mut emit_events = emit_events_and_response("Acknowledgement", &Acknowledgement {
+    let mut emit_events = emit_events_and_response("xxx", "Acknowledgement", &Acknowledgement {
         message: format!("ACK! {}", message),
     })?;
     emit(&mut emit_events, "GreetedEvent", &GreetedEvent {

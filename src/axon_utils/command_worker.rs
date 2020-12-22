@@ -1,11 +1,12 @@
 use anyhow::{anyhow,Result};
-use async_stream::{stream};
-use futures_core::stream::{Stream};
+use async_stream::stream;
+use futures_core::stream::Stream;
 use log::{debug,error,warn};
 use prost::Message;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Sender,Receiver, channel};
-use tonic::{Request};
+use tonic::Request;
+use tonic::transport::Channel;
 use uuid::Uuid;
 use super::{AxonConnection, axon_serialize};
 use super::handler_registry::{HandlerRegistry,TheHandlerRegistry};
@@ -14,17 +15,25 @@ use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,Comman
 use crate::axon_server::command::{command_provider_inbound,Command};
 use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
+use crate::axon_server::event::{Event,ReadHighestSequenceNrRequest};
+use crate::axon_server::event::event_store_client::EventStoreClient;
 
-pub fn emit_events() -> EmitEventsAndResponse {
+pub fn emit_events(target_aggregate_identifier: &str) -> EmitEventsAndResponse {
     EmitEventsAndResponse {
+        target_aggregate_identifier: target_aggregate_identifier.to_string(),
         events: Vec::new(),
         response: None,
     }
 }
 
-pub fn emit_events_and_response<T: Message>(type_name: &str, response: &T) -> Result<EmitEventsAndResponse> {
+pub fn emit_events_and_response<T: Message>(
+    target_aggregate_identifier: &str,
+    type_name: &str,
+    response: &T
+) -> Result<EmitEventsAndResponse> {
     let payload = axon_serialize(type_name, response)?;
     Ok(EmitEventsAndResponse {
+        target_aggregate_identifier: target_aggregate_identifier.to_string(),
         events: Vec::new(),
         response: Some(payload),
     })
@@ -32,6 +41,7 @@ pub fn emit_events_and_response<T: Message>(type_name: &str, response: &T) -> Re
 
 #[derive(Clone,Debug)]
 pub struct EmitEventsAndResponse {
+    target_aggregate_identifier: String,
     events: Vec<SerializedObject>,
     response: Option<SerializedObject>,
 }
@@ -50,7 +60,9 @@ struct AxonCommandResult {
 
 pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry<EmitEventsAndResponse>) -> Result<()> {
     debug!("Command worker: start");
+    let axon_connection_clone = axon_connection.clone();
     let mut client = CommandServiceClient::new(axon_connection.conn);
+    let mut event_store_client = EventStoreClient::new(axon_connection_clone.conn);
     let client_id = axon_connection.id.clone();
 
     let subscription = handler_registry.get("GreetCommand");
@@ -79,6 +91,12 @@ pub async fn command_worker(axon_connection: AxonConnection, handler_registry: T
                         Err(e) => warn!("Error while handling command: {:?}", e),
                         Ok(result) => debug!("Result from command handler: {:?}", result),
                     }
+
+                    if let Ok(Some(result)) = result.as_ref() {
+                        debug!("Emit events: {:?}", &result.events);
+                        store_events(&mut event_store_client, &result).await.unwrap(); // TODO: error handling
+                    }
+
                     let axon_command_result = AxonCommandResult {
                         message_identifier: command.message_identifier,
                         result
@@ -155,13 +173,7 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx
             };
             match axon_command_result.result {
                 Ok(result) => {
-                    response.payload = result
-                        .map(|r| {
-                            debug!("Emit events: {:?}", r.events);
-                            // TODO: actually send these events to AxonServer!
-                            r
-                        })
-                        .map(|r| r.response).flatten();
+                    response.payload = result.map(|r| r.response).flatten();
                 }
                 Err(e) => {
                     response.error_code = "ERROR".to_string();
@@ -199,4 +211,30 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx
 
         // debug!("Command worker: stream: stop");
     }
+}
+
+async fn store_events(client: &mut EventStoreClient<Channel>, events: &EmitEventsAndResponse) -> Result<()>{
+    debug!("Client: {:?}: events: {:?}", client, events);
+    let request = ReadHighestSequenceNrRequest {
+        aggregate_id: events.target_aggregate_identifier.clone(),
+        from_sequence_nr: 0,
+    };
+    let response = client.read_highest_sequence_nr(request).await?.into_inner();
+
+    let message_identifier = Uuid::new_v4();
+    let now = std::time::SystemTime::now();
+    let timestamp = now.duration_since(std::time::UNIX_EPOCH)?.as_millis() as i64;
+    let event_messages: Vec<Event> = events.events.iter().map(move |e| Event {
+        message_identifier: format!("{:?}", message_identifier.to_simple()),
+        timestamp,
+        aggregate_identifier: events.target_aggregate_identifier.clone(),
+        aggregate_sequence_number: response.to_sequence_nr + 1,
+        aggregate_type: "Greeting".to_string(),
+        payload: Some(e.clone()),
+        meta_data: HashMap::new(),
+        snapshot: false,
+    }).collect();
+    let request = Request::new(futures_util::stream::iter(event_messages));
+    client.append_event(request).await?;
+    Ok(())
 }

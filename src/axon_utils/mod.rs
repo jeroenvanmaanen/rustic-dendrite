@@ -23,7 +23,7 @@ pub struct AxonServerHandle {
     pub conn: Channel,
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct AxonConnection {
     pub id: String,
     pub conn: Channel,
