@@ -8,6 +8,7 @@ use crate::axon_server::SerializedObject;
 mod command_submit;
 mod command_worker;
 mod connection;
+mod event_query;
 mod handler_registry;
 
 pub use command_submit::init as init_command_sender;
@@ -16,6 +17,7 @@ pub use command_worker::{EmitEventsAndResponse,emit,emit_events,emit_events_and_
 pub use connection::wait_for_server as wait_for_server;
 pub use handler_registry::empty_handler_registry as empty_handler_registry;
 pub use handler_registry::HandlerRegistry as HandlerRegistry;
+pub use event_query::query_events;
 
 #[derive(Debug, Clone)]
 pub struct AxonServerHandle {

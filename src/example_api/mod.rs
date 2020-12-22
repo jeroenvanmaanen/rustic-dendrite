@@ -2,10 +2,11 @@ use anyhow::{Result};
 use bytes::Bytes;
 use log::{debug};
 use prost::Message;
+use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
-use crate::axon_utils::{init_command_sender, CommandSink, AxonServerHandle};
+use crate::axon_utils::{AxonServerHandle, CommandSink, init_command_sender, query_events};
 use crate::grpc_example::greeter_service_server::GreeterService;
-use crate::grpc_example::{Acknowledgement, Empty, Greeting, GreetCommand, RecordCommand, StopCommand};
+use crate::grpc_example::{Acknowledgement, Empty, GreetedEvent, Greeting, GreetCommand, RecordCommand, StopCommand};
 
 #[derive(Debug)]
 pub struct GreeterServer {
@@ -75,6 +76,34 @@ impl GreeterService for GreeterServer {
         let reply = Empty { };
 
         Ok(Response::new(reply))
+    }
+
+    type GreetingsStream = mpsc::Receiver<Result<Greeting, Status>>;
+
+    async fn greetings(&self, _request: Request<Empty>) -> Result<Response<Self::GreetingsStream>, Status> {
+        let events = query_events(&self.axon_server_handle, "xxx").await
+            .map_err(|e| Status::unknown(e.to_string()))?;
+        let (mut tx, rx) = mpsc::channel(4);
+
+        tokio::spawn(async move {
+            for event in &events[..] {
+                let event = event.clone();
+                if let Some(payload) = event.payload {
+                    if payload.r#type == "GreetedEvent" {
+                        let greeted_event_message = GreetedEvent::decode(Bytes::from(payload.data)).ok().map(|e| e.message);
+                        if let Some(greeting) = greeted_event_message.flatten() {
+                            debug!("Greeting: {:?}", greeting);
+                            tx.send(Ok(greeting)).await.ok();
+                        }
+                    }
+                }
+            }
+            tx.send(Ok(Greeting {
+                message: "End of stream -oo-".to_string(),
+            })).await.ok();
+        });
+
+        Ok(Response::new(rx))
     }
 }
 

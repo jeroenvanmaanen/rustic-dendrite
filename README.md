@@ -13,7 +13,7 @@ The first phase is to communicate with Axon Server properly. This will be achiev
 2. ☑ Issue commands
 3. ☑ Register a command handler and handle commands
 4. ☑ Submit events
-   * ☐ Stream events to UI
+   * ☑ Stream events to UI
 5. ☐ Retrieve the events for an aggregate and build a projection
    * ☐ Validate commands against the projection
 6. ☐ Register a tracking event processor and handle events
