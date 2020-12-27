@@ -65,9 +65,6 @@ pub async fn command_worker(axon_connection: AxonConnection, handler_registry: T
     let mut event_store_client = EventStoreClient::new(axon_connection_clone.conn);
     let client_id = axon_connection.id.clone();
 
-    let subscription = handler_registry.get("GreetCommand");
-    debug!("Subscription: {:?}", subscription.map(|h| h.name()));
-
     let mut command_vec: Vec<String> = vec![];
     command_vec.extend(handler_registry.handlers.keys().map(|x| x.clone()));
     let command_box = Box::new(command_vec);
