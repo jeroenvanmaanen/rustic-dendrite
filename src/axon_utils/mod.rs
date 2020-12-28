@@ -13,7 +13,7 @@ mod handler_registry;
 
 pub use command_submit::init as init_command_sender;
 pub use command_worker::command_worker as command_worker;
-pub use command_worker::{AggregateDefinition,EmitEventsAndResponse,create_aggregate_definition,emit,emit_events,emit_events_and_response};
+pub use command_worker::{AggregateDefinition,EmitApplicableEventsAndResponse,EmitEventsAndResponse,create_aggregate_definition,emit,emit_applicable,emit_applicable_events_and_response,emit_events,emit_events_and_response};
 pub use connection::wait_for_server as wait_for_server;
 pub use handler_registry::empty_handler_registry as empty_handler_registry;
 pub use handler_registry::HandlerRegistry as HandlerRegistry;
@@ -66,4 +66,6 @@ pub trait ApplicableTo where Self: VecU8Message + std::fmt::Debug {
 
     /// Applies this message to the given projection.
     fn apply_to(self: &Self, projection: &mut Self::Projection) -> Result<()>;
+
+    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection=Self::Projection>>;
 }

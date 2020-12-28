@@ -39,6 +39,19 @@ pub fn emit_events_and_response<T: Message>(
     })
 }
 
+pub fn emit_applicable_events_and_response<T: Message, P: VecU8Message + Send + Clone>(
+    target_aggregate_identifier: &str,
+    type_name: &str,
+    response: &T
+) -> Result<EmitApplicableEventsAndResponse<P>> {
+    let payload = axon_serialize(type_name, response)?;
+    Ok(EmitApplicableEventsAndResponse {
+        target_aggregate_identifier: target_aggregate_identifier.to_string(),
+        events: Vec::new(),
+        response: Some(payload),
+    })
+}
+
 #[derive(Clone,Debug)]
 pub struct EmitEventsAndResponse {
     target_aggregate_identifier: String,
@@ -46,24 +59,40 @@ pub struct EmitEventsAndResponse {
     response: Option<SerializedObject>,
 }
 
-#[derive(Clone,Debug)]
-pub struct EmitApplicableEventsAndResponse<'a, P> {
+#[derive(Debug)]
+pub struct EmitApplicableEventsAndResponse<P> {
     target_aggregate_identifier: String,
-    events: Vec<Box<&'a dyn ApplicableTo<Projection=P>>>,
+    events: Vec<(String,Box<dyn ApplicableTo<Projection=P>>)>,
     response: Option<SerializedObject>,
 }
 
-pub struct AggregateDefinition<'a, P: VecU8Message + Send + Clone> {
+impl<P> Clone for EmitApplicableEventsAndResponse<P> {
+    fn clone(&self) -> Self {
+        EmitApplicableEventsAndResponse {
+            target_aggregate_identifier: self.target_aggregate_identifier.clone(),
+            events: self.events.iter().map(|(n,b)| (n.clone(), b.box_clone())).collect(),
+            response: self.response.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.target_aggregate_identifier = source.target_aggregate_identifier.clone();
+        self.events = source.events.iter().map(|(n, b)| (n.clone(), b.box_clone())).collect();
+        self.response = source.response.clone();
+    }
+}
+
+pub struct AggregateDefinition<P: VecU8Message + Send + Clone> {
     projection_name: String,
     empty_projection: Box<dyn Fn() -> P + Send>,
-    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<'a,SerializedObject>>,
+    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<SerializedObject>>,
     sourcing_handler_registry: TheHandlerRegistry<P,P>,
 }
 
-pub fn create_aggregate_definition<'a, P: VecU8Message + Send + Clone>(
+pub fn create_aggregate_definition<P: VecU8Message + Send + Clone>(
     projection_name: String,
     empty_projection: Box<dyn Fn() -> P + Send>,
-    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<'a,SerializedObject>>,
+    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<SerializedObject>>,
     sourcing_handler_registry: TheHandlerRegistry<P,P>
 ) -> AggregateDefinition<P>{
     AggregateDefinition {
@@ -71,7 +100,11 @@ pub fn create_aggregate_definition<'a, P: VecU8Message + Send + Clone>(
     }
 }
 
-async fn handle_command<P: VecU8Message + Send + Clone>(command: &Command, aggregate_definition: &AggregateDefinition<'static,P>) -> Result<Option<SerializedObject>> {
+async fn handle_command<P: VecU8Message + Send + Clone>(
+    command: &Command,
+    aggregate_definition: &AggregateDefinition<P>,
+    _axon_connection: AxonConnection,
+) -> Result<Option<SerializedObject>> {
     debug!("Incoming command: {:?}", command);
     let handler = aggregate_definition.command_handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
     let projection = (aggregate_definition.empty_projection)();
@@ -85,6 +118,11 @@ pub fn emit<T: Message>(holder: &mut EmitEventsAndResponse, type_name: &str, eve
     Ok(())
 }
 
+pub fn emit_applicable<P: VecU8Message + Send + Clone>(holder: &mut EmitApplicableEventsAndResponse<P>, type_name: &str, event: Box<dyn ApplicableTo<Projection=P>>) -> Result<()> {
+    holder.events.push((type_name.to_string(), event));
+    Ok(())
+}
+
 #[derive(Debug)]
 struct AxonCommandResult {
     message_identifier: String,
@@ -94,7 +132,7 @@ struct AxonCommandResult {
 pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug>(
     axon_connection: AxonConnection,
     handler_registry: TheHandlerRegistry<(),EmitEventsAndResponse>,
-    aggregate_definition: AggregateDefinition<'static, P>
+    aggregate_definition: AggregateDefinition<P>
 ) -> Result<()> {
     debug!("Command worker: start");
 
