@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{Sender,Receiver, channel};
 use tonic::Request;
 use tonic::transport::Channel;
 use uuid::Uuid;
-use super::{AxonConnection, axon_serialize};
+use super::{ApplicableTo, AxonConnection, VecU8Message, axon_serialize};
 use super::handler_registry::{HandlerRegistry,TheHandlerRegistry};
 use crate::axon_server::{ErrorMessage,FlowControl,SerializedObject};
 use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,CommandSubscription};
@@ -46,6 +46,39 @@ pub struct EmitEventsAndResponse {
     response: Option<SerializedObject>,
 }
 
+#[derive(Clone,Debug)]
+pub struct EmitApplicableEventsAndResponse<'a, P> {
+    target_aggregate_identifier: String,
+    events: Vec<Box<&'a dyn ApplicableTo<Projection=P>>>,
+    response: Option<SerializedObject>,
+}
+
+pub struct AggregateDefinition<'a, P: VecU8Message + Send + Clone> {
+    projection_name: String,
+    empty_projection: Box<dyn Fn() -> P + Send>,
+    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<'a,SerializedObject>>,
+    sourcing_handler_registry: TheHandlerRegistry<P,P>,
+}
+
+pub fn create_aggregate_definition<'a, P: VecU8Message + Send + Clone>(
+    projection_name: String,
+    empty_projection: Box<dyn Fn() -> P + Send>,
+    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<'a,SerializedObject>>,
+    sourcing_handler_registry: TheHandlerRegistry<P,P>
+) -> AggregateDefinition<P>{
+    AggregateDefinition {
+        projection_name, empty_projection, command_handler_registry, sourcing_handler_registry,
+    }
+}
+
+async fn handle_command<P: VecU8Message + Send + Clone>(command: &Command, aggregate_definition: &AggregateDefinition<'static,P>) -> Result<Option<SerializedObject>> {
+    debug!("Incoming command: {:?}", command);
+    let handler = aggregate_definition.command_handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
+    let projection = (aggregate_definition.empty_projection)();
+    let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
+    Ok(handler.handle(data, projection).await?.map(|r| r.response).flatten())
+}
+
 pub fn emit<T: Message>(holder: &mut EmitEventsAndResponse, type_name: &str, event: &T) -> Result<()> {
     let payload = axon_serialize(type_name, event)?;
     holder.events.push(payload);
@@ -58,8 +91,17 @@ struct AxonCommandResult {
     result: Result<Option<EmitEventsAndResponse>>,
 }
 
-pub async fn command_worker(axon_connection: AxonConnection, handler_registry: TheHandlerRegistry<EmitEventsAndResponse>) -> Result<()> {
+pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug>(
+    axon_connection: AxonConnection,
+    handler_registry: TheHandlerRegistry<(),EmitEventsAndResponse>,
+    aggregate_definition: AggregateDefinition<'static, P>
+) -> Result<()> {
     debug!("Command worker: start");
+
+    debug!("Projection name: {:?}", aggregate_definition.projection_name);
+    let empty_projection = (aggregate_definition.empty_projection)();
+    debug!("Empty projection: {:?}", empty_projection);
+
     let axon_connection_clone = axon_connection.clone();
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let mut event_store_client = EventStoreClient::new(axon_connection_clone.conn);
@@ -112,11 +154,11 @@ pub async fn command_worker(axon_connection: AxonConnection, handler_registry: T
     }
 }
 
-async fn handle<W: Clone + 'static>(command: &Command, handler_registry: &TheHandlerRegistry<W>) -> Result<Option<W>> {
+async fn handle<W: Clone + 'static>(command: &Command, handler_registry: &TheHandlerRegistry<(),W>) -> Result<Option<W>> {
     debug!("Incoming command: {:?}", command);
     let handler = handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
     let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
-    handler.handle(data).await
+    handler.handle(data, ()).await
 }
 
 fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx: Receiver<AxonCommandResult>) -> impl Stream<Item = CommandProviderOutbound> {

@@ -35,6 +35,12 @@ message Acknowledgement {
 
 message Empty {}
 
+//  Aggregates
+
+message GreeterProjection {
+    bool isRecording = 1;
+}
+
 //  Commands
 
 message GreetCommand {

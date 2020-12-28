@@ -1,8 +1,8 @@
 use anyhow::{Context,Result,anyhow};
 use log::{debug,error};
 use prost::{Message};
-use crate::axon_utils::{EmitEventsAndResponse, HandlerRegistry, command_worker, emit, emit_events_and_response, empty_handler_registry, wait_for_server};
-use crate::grpc_example::{Acknowledgement,GreetCommand,GreetedEvent,RecordCommand,StopCommand};
+use crate::axon_utils::{EmitEventsAndResponse, HandlerRegistry, command_worker, create_aggregate_definition, emit, emit_events_and_response, empty_handler_registry, wait_for_server};
+use crate::grpc_example::{Acknowledgement,GreetCommand,GreetedEvent,GreeterProjection,RecordCommand,StopCommand};
 
 pub async fn handle_commands() {
     if let Err(e) = internal_handle_commands().await {
@@ -21,22 +21,33 @@ async fn internal_handle_commands() -> Result<()> {
     handler_registry.insert_with_output(
         "GreetCommand",
         &GreetCommand::decode,
-        &(|c| Box::pin(handle_greet_command(c)))
+        &(|c, _| Box::pin(handle_greet_command(c)))
     )?;
 
     handler_registry.insert(
         "RecordCommand",
         &RecordCommand::decode,
-        &(|c| Box::pin(handle_record_command(c)))
+        &(|c, _| Box::pin(handle_record_command(c)))
     )?;
 
     handler_registry.insert(
         "StopCommand",
         &StopCommand::decode,
-        &(|c| Box::pin(handle_stop_command(c)))
+        &(|c, _| Box::pin(handle_stop_command(c)))
     )?;
 
-    command_worker(axon_connection, handler_registry).await.context("Error while handling commands")
+    let aggregate_definition = create_aggregate_definition(
+        "GreeterProjection".to_string(),
+        Box::new(|| {
+            let mut projection = GreeterProjection::default();
+            projection.is_recording = true;
+            projection
+        }),
+        empty_handler_registry(),
+        empty_handler_registry()
+    );
+
+    command_worker(axon_connection, handler_registry, aggregate_definition).await.context("Error while handling commands")
 }
 
 async fn handle_greet_command (command: GreetCommand) -> Result<Option<EmitEventsAndResponse>> {

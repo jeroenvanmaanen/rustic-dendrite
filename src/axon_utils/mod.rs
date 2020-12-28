@@ -13,7 +13,7 @@ mod handler_registry;
 
 pub use command_submit::init as init_command_sender;
 pub use command_worker::command_worker as command_worker;
-pub use command_worker::{EmitEventsAndResponse,emit,emit_events,emit_events_and_response};
+pub use command_worker::{AggregateDefinition,EmitEventsAndResponse,create_aggregate_definition,emit,emit_events,emit_events_and_response};
 pub use connection::wait_for_server as wait_for_server;
 pub use handler_registry::empty_handler_registry as empty_handler_registry;
 pub use handler_registry::HandlerRegistry as HandlerRegistry;
@@ -58,4 +58,12 @@ pub fn axon_serialize<T: Message>(type_name: &str, message: &T) -> Result<Serial
     };
     debug!("Encoded output: {:?}", result);
     Ok(result)
+}
+
+pub trait ApplicableTo where Self: VecU8Message + std::fmt::Debug {
+    /// The type of projection these messages can be applied to.
+    type Projection;
+
+    /// Applies this message to the given projection.
+    fn apply_to(self: &Self, projection: &mut Self::Projection) -> Result<()>;
 }
