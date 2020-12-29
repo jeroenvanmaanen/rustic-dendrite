@@ -22,7 +22,7 @@ The first phase is to communicate with Axon Server properly. This will be achiev
 8. ☐ Register a query handler and handle queries
    * ☐ Show query results in UI
 
-After that, the example project will be split off from the library and the library will be published on [crates.io](https://crates.io/).
+After that, the example project will be split off from the library, and the library will be published on [crates.io](https://crates.io/).
 
 # Core concepts
 

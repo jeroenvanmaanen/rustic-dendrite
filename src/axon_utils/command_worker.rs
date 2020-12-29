@@ -84,7 +84,7 @@ impl<P> Clone for EmitApplicableEventsAndResponse<P> {
     }
 }
 
-pub struct AggregateDefinition<P: VecU8Message + Send + Clone> {
+pub struct AggregateDefinition<P: VecU8Message + Send + Clone + 'static> {
     projection_name: String,
     empty_projection: Box<dyn Fn() -> P + Send + Sync>,
     command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<P>>,
@@ -102,19 +102,26 @@ pub fn create_aggregate_definition<P: VecU8Message + Send + Clone>(
     }
 }
 
-async fn handle_command<P: VecU8Message + Send + Clone + 'static>(
+async fn handle_command<P: VecU8Message + Send + Clone + std::fmt::Debug + 'static>(
     command: &Command,
     aggregate_definition: &AggregateDefinition<P>,
     client: &mut EventStoreClient<Channel>
 ) -> Result<Option<EmitApplicableEventsAndResponse<P>>> {
     debug!("Incoming command: {:?}", command);
+    let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
     let handler = aggregate_definition.command_handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
-    let projection = (aggregate_definition.empty_projection)();
+    let mut projection = (aggregate_definition.empty_projection)();
     let events = query_events_from_client(client, "xxx").await?;
     for event in events {
         debug!("Replaying event: {:?}", event);
+        if let Some(payload) = event.payload {
+            let sourcing_handler = aggregate_definition.sourcing_handler_registry.get(&payload.r#type).ok_or(anyhow!("Missing sourcing handler for {:?}", payload.r#type))?;
+            if let Some(p) = (sourcing_handler).handle(payload.data, projection.clone()).await? {
+                projection = p;
+            }
+        }
     }
-    let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
+    debug!("Restored projection: {:?}", projection);
     Ok(handler.handle(data, projection).await?)
 }
 
