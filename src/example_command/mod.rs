@@ -16,7 +16,8 @@ async fn internal_handle_commands() -> Result<()> {
     let axon_connection = wait_for_server("proxy", 8124, "Command Processor").await.context("No connection")?;
     debug!("Axon connection: {:?}", axon_connection);
 
-    let mut sourcing_registry: TheHandlerRegistry<GreeterProjection,GreeterProjection>  = empty_handler_registry();
+    let mut aggregate_id_extractor_registry: TheHandlerRegistry<(),String> = empty_handler_registry();
+    let mut sourcing_registry: TheHandlerRegistry<GreeterProjection,GreeterProjection> = empty_handler_registry();
     let mut handler_registry = empty_handler_registry();
 
     sourcing_registry.insert_with_output(
@@ -37,16 +38,34 @@ async fn internal_handle_commands() -> Result<()> {
         &(|c, p| Box::pin(handle_sourcing_event(Box::from(c), p)))
     )?;
 
+    aggregate_id_extractor_registry.insert_with_output(
+        "GreetCommand",
+        &GreetCommand::decode,
+        &(|_, _| Box::pin(fixed_aggregate_id()))
+    )?;
+
     handler_registry.insert_with_output(
         "GreetCommand",
         &GreetCommand::decode,
         &(|c, p| Box::pin(handle_greet_command(c, p)))
     )?;
 
+    aggregate_id_extractor_registry.insert_with_output(
+        "RecordCommand",
+        &RecordCommand::decode,
+        &(|_, _| Box::pin(fixed_aggregate_id()))
+    )?;
+
     handler_registry.insert_with_output(
         "RecordCommand",
         &RecordCommand::decode,
         &(|c, p| Box::pin(handle_record_command(c, p)))
+    )?;
+
+    aggregate_id_extractor_registry.insert_with_output(
+        "StopCommand",
+        &StopCommand::decode,
+        &(|_, _| Box::pin(fixed_aggregate_id()))
     )?;
 
     handler_registry.insert_with_output(
@@ -62,6 +81,7 @@ async fn internal_handle_commands() -> Result<()> {
             projection.is_recording = true;
             projection
         }),
+        aggregate_id_extractor_registry,
         handler_registry,
         sourcing_registry
     );
@@ -73,6 +93,10 @@ async fn handle_sourcing_event<T: ApplicableTo<Projection=P>,P: Clone>(event: Bo
     let mut p = projection.clone();
     event.apply_to(&mut p)?;
     Ok(Some(p))
+}
+
+async fn fixed_aggregate_id() -> Result<Option<String>> {
+    Ok(Some("xxx".to_string()))
 }
 
 impl ApplicableTo for GreetedEvent {
@@ -128,7 +152,7 @@ async fn handle_greet_command (command: GreetCommand, projection: GreeterProject
     if message == "ERROR" {
         return Err(anyhow!("Panicked at reading 'ERROR'"));
     }
-    let mut emit_events = emit_applicable_events_and_response("xxx", "Acknowledgement", &Acknowledgement {
+    let mut emit_events = emit_applicable_events_and_response("Acknowledgement", &Acknowledgement {
         message: format!("ACK! {}", message),
     })?;
     emit_applicable(&mut emit_events, "GreetedEvent", Box::from(GreetedEvent {
@@ -143,7 +167,7 @@ async fn handle_record_command (command: RecordCommand, projection: GreeterProje
     if projection.is_recording {
         return Ok(None)
     }
-    let mut emit_events = emit_applicable_events_and_response("xxx", "Acknowledgement", &())?;
+    let mut emit_events = emit_applicable_events_and_response("Empty", &())?;
     emit_applicable(&mut emit_events, "StartedRecordingEvent", Box::from(StartedRecordingEvent {}))?;
     Ok(Some(emit_events))
 }
@@ -153,7 +177,7 @@ async fn handle_stop_command (command: StopCommand, projection: GreeterProjectio
     if !projection.is_recording {
         return Ok(None)
     }
-    let mut emit_events = emit_applicable_events_and_response("xxx", "Acknowledgement", &())?;
+    let mut emit_events = emit_applicable_events_and_response("Empty", &())?;
     emit_applicable(&mut emit_events, "StoppedRecordingEvent", Box::from(StoppedRecordingEvent {}))?;
     Ok(Some(emit_events))
 }

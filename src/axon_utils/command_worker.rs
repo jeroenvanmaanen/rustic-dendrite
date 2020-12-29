@@ -20,35 +20,30 @@ use crate::axon_server::event::{Event,ReadHighestSequenceNrRequest};
 use crate::axon_server::event::event_store_client::EventStoreClient;
 use std::fmt::Debug;
 
-pub fn emit_events(target_aggregate_identifier: &str) -> EmitEventsAndResponse {
+pub fn emit_events() -> EmitEventsAndResponse {
     EmitEventsAndResponse {
-        target_aggregate_identifier: target_aggregate_identifier.to_string(),
         events: Vec::new(),
         response: None,
     }
 }
 
 pub fn emit_events_and_response<T: Message>(
-    target_aggregate_identifier: &str,
     type_name: &str,
     response: &T
 ) -> Result<EmitEventsAndResponse> {
     let payload = axon_serialize(type_name, response)?;
     Ok(EmitEventsAndResponse {
-        target_aggregate_identifier: target_aggregate_identifier.to_string(),
         events: Vec::new(),
         response: Some(payload),
     })
 }
 
 pub fn emit_applicable_events_and_response<T: Message, P: VecU8Message + Send + Clone>(
-    target_aggregate_identifier: &str,
     type_name: &str,
     response: &T
 ) -> Result<EmitApplicableEventsAndResponse<P>> {
     let payload = axon_serialize(type_name, response)?;
     Ok(EmitApplicableEventsAndResponse {
-        target_aggregate_identifier: target_aggregate_identifier.to_string(),
         events: Vec::new(),
         response: Some(payload),
     })
@@ -56,14 +51,12 @@ pub fn emit_applicable_events_and_response<T: Message, P: VecU8Message + Send + 
 
 #[derive(Clone,Debug)]
 pub struct EmitEventsAndResponse {
-    target_aggregate_identifier: String,
     events: Vec<SerializedObject>,
     response: Option<SerializedObject>,
 }
 
 #[derive(Debug)]
 pub struct EmitApplicableEventsAndResponse<P> {
-    target_aggregate_identifier: String,
     events: Vec<(String,Box<dyn ApplicableTo<Projection=P>>)>,
     response: Option<SerializedObject>,
 }
@@ -71,14 +64,12 @@ pub struct EmitApplicableEventsAndResponse<P> {
 impl<P> Clone for EmitApplicableEventsAndResponse<P> {
     fn clone(&self) -> Self {
         EmitApplicableEventsAndResponse {
-            target_aggregate_identifier: self.target_aggregate_identifier.clone(),
             events: self.events.iter().map(|(n,b)| (n.clone(), b.box_clone())).collect(),
             response: self.response.clone(),
         }
     }
 
     fn clone_from(&mut self, source: &Self) {
-        self.target_aggregate_identifier = source.target_aggregate_identifier.clone();
         self.events = source.events.iter().map(|(n, b)| (n.clone(), b.box_clone())).collect();
         self.response = source.response.clone();
     }
@@ -87,6 +78,7 @@ impl<P> Clone for EmitApplicableEventsAndResponse<P> {
 pub struct AggregateDefinition<P: VecU8Message + Send + Clone + 'static> {
     projection_name: String,
     empty_projection: Box<dyn Fn() -> P + Send + Sync>,
+    aggregate_id_extractor_registry: TheHandlerRegistry<(),String>,
     command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<P>>,
     sourcing_handler_registry: TheHandlerRegistry<P,P>,
 }
@@ -94,11 +86,12 @@ pub struct AggregateDefinition<P: VecU8Message + Send + Clone + 'static> {
 pub fn create_aggregate_definition<P: VecU8Message + Send + Clone>(
     projection_name: String,
     empty_projection: Box<dyn Fn() -> P + Send + Sync>,
+    aggregate_id_extractor_registry: TheHandlerRegistry<(),String>,
     command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<P>>,
     sourcing_handler_registry: TheHandlerRegistry<P,P>
 ) -> AggregateDefinition<P>{
     AggregateDefinition {
-        projection_name, empty_projection, command_handler_registry, sourcing_handler_registry,
+        projection_name, empty_projection, aggregate_id_extractor_registry, command_handler_registry, sourcing_handler_registry,
     }
 }
 
@@ -106,23 +99,43 @@ async fn handle_command<P: VecU8Message + Send + Clone + std::fmt::Debug + 'stat
     command: &Command,
     aggregate_definition: &AggregateDefinition<P>,
     client: &mut EventStoreClient<Channel>
-) -> Result<Option<EmitApplicableEventsAndResponse<P>>> {
+) -> Result<(String,Option<EmitApplicableEventsAndResponse<P>>)> {
     debug!("Incoming command: {:?}", command);
     let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
+
+    let mut aggregate_id = None;
+    if let Some(aggregate_id_extractor) = aggregate_definition.aggregate_id_extractor_registry.get(&command.name){
+        aggregate_id = aggregate_id_extractor.handle(data.clone(), ()).await?
+    }
+    debug!("Aggregate ID: {:?}", aggregate_id);
+
     let handler = aggregate_definition.command_handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
     let mut projection = (aggregate_definition.empty_projection)();
-    let events = query_events_from_client(client, "xxx").await?;
-    for event in events {
-        debug!("Replaying event: {:?}", event);
-        if let Some(payload) = event.payload {
-            let sourcing_handler = aggregate_definition.sourcing_handler_registry.get(&payload.r#type).ok_or(anyhow!("Missing sourcing handler for {:?}", payload.r#type))?;
-            if let Some(p) = (sourcing_handler).handle(payload.data, projection.clone()).await? {
-                projection = p;
+    if let Some(aggregate_id) = &aggregate_id {
+        let events = query_events_from_client(client, &aggregate_id).await?;
+        for event in events {
+            debug!("Replaying event: {:?}", event);
+            if let Some(payload) = event.payload {
+                let sourcing_handler = aggregate_definition.sourcing_handler_registry.get(&payload.r#type).ok_or(anyhow!("Missing sourcing handler for {:?}", payload.r#type))?;
+                if let Some(p) = (sourcing_handler).handle(payload.data, projection.clone()).await? {
+                    projection = p;
+                }
             }
         }
     }
     debug!("Restored projection: {:?}", projection);
-    Ok(handler.handle(data, projection).await?)
+    let result = handler.handle(data, projection).await?;
+    if let (None,Some(EmitApplicableEventsAndResponse{ response: Some(r), ..})) = (&aggregate_id,result.as_ref()) {
+        let response_type = r.r#type.clone();
+        if let Some(aggregate_id_extractor) = aggregate_definition.aggregate_id_extractor_registry.get(&response_type) {
+            let response_data = r.data.clone();
+            aggregate_id = aggregate_id_extractor.handle(response_data, ()).await?
+        }
+    }
+    if let Some(aggregate_id) = aggregate_id {
+        return Ok((aggregate_id, result))
+    }
+    Err(anyhow!("Missing aggregate identifier"))
 }
 
 pub fn emit<T: Message>(holder: &mut EmitEventsAndResponse, type_name: &str, event: &T) -> Result<()> {
@@ -181,21 +194,25 @@ pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug + '
                         Ok(result) => debug!("Result from command handler: {:?}", result),
                     }
 
-                    let result = match result {
-                        Ok(Some(result)) => { Some(result) }
+                    let aggregate_id = match result.as_ref() {
+                        Ok((aggregate_id, _)) => Some(aggregate_id),
                         _ => None
                     };
 
-                    if let Some(result) = result.as_ref() {
+                    let result = match result.as_ref() {
+                        Ok((_, Some(result))) => { Some(result) }
+                        _ => None
+                    };
+
+                    if let (Some(aggregate_id), Some(result)) = (aggregate_id, result.as_ref()) {
                         debug!("Emit events: {:?}", &result.events);
-                        store_events(&mut event_store_client, &result).await.unwrap(); // TODO: error handling
+                        store_events(&mut event_store_client, aggregate_id, &result).await.unwrap(); // TODO: error handling
                     }
 
                     let wrapped_result = result.map(
                         |r| EmitEventsAndResponse {
-                            target_aggregate_identifier: r.target_aggregate_identifier,
                             events: vec![],
-                            response: r.response
+                            response: r.response.clone()
                         }
                     );
 
@@ -308,10 +325,10 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx
     }
 }
 
-async fn store_events<P: std::fmt::Debug>(client: &mut EventStoreClient<Channel>, events: &EmitApplicableEventsAndResponse<P>) -> Result<()>{
+async fn store_events<P: std::fmt::Debug>(client: &mut EventStoreClient<Channel>, aggregate_id: &str, events: &EmitApplicableEventsAndResponse<P>) -> Result<()>{
     debug!("Client: {:?}: events: {:?}", client, events);
     let request = ReadHighestSequenceNrRequest {
-        aggregate_id: events.target_aggregate_identifier.clone(),
+        aggregate_id: aggregate_id.to_string(),
         from_sequence_nr: 0,
     };
     let response = client.read_highest_sequence_nr(request).await?.into_inner();
@@ -331,7 +348,7 @@ async fn store_events<P: std::fmt::Debug>(client: &mut EventStoreClient<Channel>
         Event {
             message_identifier: format!("{:?}", message_identifier.to_simple()),
             timestamp,
-            aggregate_identifier: events.target_aggregate_identifier.clone(),
+            aggregate_identifier: aggregate_id.to_string(),
             aggregate_sequence_number: response.to_sequence_nr + 1,
             aggregate_type: "Greeting".to_string(),
             payload: Some(e),
