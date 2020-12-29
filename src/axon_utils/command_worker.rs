@@ -99,7 +99,7 @@ async fn handle_command<P: VecU8Message + Send + Clone + std::fmt::Debug + 'stat
     command: &Command,
     aggregate_definition: &AggregateDefinition<P>,
     client: &mut EventStoreClient<Channel>
-) -> Result<(String,Option<EmitApplicableEventsAndResponse<P>>)> {
+) -> Result<Option<EmitEventsAndResponse>> {
     debug!("Incoming command: {:?}", command);
     let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
 
@@ -133,7 +133,20 @@ async fn handle_command<P: VecU8Message + Send + Clone + std::fmt::Debug + 'stat
         }
     }
     if let Some(aggregate_id) = aggregate_id {
-        return Ok((aggregate_id, result))
+
+        if let Some(result) = result.as_ref() {
+            debug!("Emit events: {:?}", &result.events);
+            store_events(client, &aggregate_id, &result).await?;
+        }
+
+        let wrapped_result = result.map(
+            |r| EmitEventsAndResponse {
+                events: vec![],
+                response: r.response.clone()
+            }
+        );
+
+        return Ok(wrapped_result)
     }
     Err(anyhow!("Missing aggregate identifier"))
 }
@@ -194,31 +207,9 @@ pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug + '
                         Ok(result) => debug!("Result from command handler: {:?}", result),
                     }
 
-                    let aggregate_id = match result.as_ref() {
-                        Ok((aggregate_id, _)) => Some(aggregate_id),
-                        _ => None
-                    };
-
-                    let result = match result.as_ref() {
-                        Ok((_, Some(result))) => { Some(result) }
-                        _ => None
-                    };
-
-                    if let (Some(aggregate_id), Some(result)) = (aggregate_id, result.as_ref()) {
-                        debug!("Emit events: {:?}", &result.events);
-                        store_events(&mut event_store_client, aggregate_id, &result).await.unwrap(); // TODO: error handling
-                    }
-
-                    let wrapped_result = result.map(
-                        |r| EmitEventsAndResponse {
-                            events: vec![],
-                            response: r.response.clone()
-                        }
-                    );
-
                     let axon_command_result = AxonCommandResult {
                         message_identifier: command.message_identifier,
-                        result: Ok(wrapped_result)
+                        result
                     };
                     tx.send(axon_command_result).await.unwrap();
                 }
