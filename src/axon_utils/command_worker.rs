@@ -9,6 +9,7 @@ use tonic::Request;
 use tonic::transport::Channel;
 use uuid::Uuid;
 use super::{ApplicableTo, AxonConnection, VecU8Message, axon_serialize};
+use super::event_query::query_events_from_client;
 use super::handler_registry::{HandlerRegistry,TheHandlerRegistry};
 use crate::axon_server::{ErrorMessage,FlowControl,SerializedObject};
 use crate::axon_server::command::{CommandProviderOutbound,CommandResponse,CommandSubscription};
@@ -17,6 +18,7 @@ use crate::axon_server::command::command_provider_outbound;
 use crate::axon_server::command::command_service_client::CommandServiceClient;
 use crate::axon_server::event::{Event,ReadHighestSequenceNrRequest};
 use crate::axon_server::event::event_store_client::EventStoreClient;
+use std::fmt::Debug;
 
 pub fn emit_events(target_aggregate_identifier: &str) -> EmitEventsAndResponse {
     EmitEventsAndResponse {
@@ -84,15 +86,15 @@ impl<P> Clone for EmitApplicableEventsAndResponse<P> {
 
 pub struct AggregateDefinition<P: VecU8Message + Send + Clone> {
     projection_name: String,
-    empty_projection: Box<dyn Fn() -> P + Send>,
-    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<SerializedObject>>,
+    empty_projection: Box<dyn Fn() -> P + Send + Sync>,
+    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<P>>,
     sourcing_handler_registry: TheHandlerRegistry<P,P>,
 }
 
 pub fn create_aggregate_definition<P: VecU8Message + Send + Clone>(
     projection_name: String,
-    empty_projection: Box<dyn Fn() -> P + Send>,
-    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<SerializedObject>>,
+    empty_projection: Box<dyn Fn() -> P + Send + Sync>,
+    command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<P>>,
     sourcing_handler_registry: TheHandlerRegistry<P,P>
 ) -> AggregateDefinition<P>{
     AggregateDefinition {
@@ -100,16 +102,20 @@ pub fn create_aggregate_definition<P: VecU8Message + Send + Clone>(
     }
 }
 
-async fn handle_command<P: VecU8Message + Send + Clone>(
+async fn handle_command<P: VecU8Message + Send + Clone + 'static>(
     command: &Command,
     aggregate_definition: &AggregateDefinition<P>,
-    _axon_connection: AxonConnection,
-) -> Result<Option<SerializedObject>> {
+    client: &mut EventStoreClient<Channel>
+) -> Result<Option<EmitApplicableEventsAndResponse<P>>> {
     debug!("Incoming command: {:?}", command);
     let handler = aggregate_definition.command_handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
     let projection = (aggregate_definition.empty_projection)();
+    let events = query_events_from_client(client, "xxx").await?;
+    for event in events {
+        debug!("Replaying event: {:?}", event);
+    }
     let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
-    Ok(handler.handle(data, projection).await?.map(|r| r.response).flatten())
+    Ok(handler.handle(data, projection).await?)
 }
 
 pub fn emit<T: Message>(holder: &mut EmitEventsAndResponse, type_name: &str, event: &T) -> Result<()> {
@@ -129,9 +135,8 @@ struct AxonCommandResult {
     result: Result<Option<EmitEventsAndResponse>>,
 }
 
-pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug>(
+pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug + 'static>(
     axon_connection: AxonConnection,
-    handler_registry: TheHandlerRegistry<(),EmitEventsAndResponse>,
     aggregate_definition: AggregateDefinition<P>
 ) -> Result<()> {
     debug!("Command worker: start");
@@ -146,7 +151,7 @@ pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug>(
     let client_id = axon_connection.id.clone();
 
     let mut command_vec: Vec<String> = vec![];
-    command_vec.extend(handler_registry.handlers.keys().map(|x| x.clone()));
+    command_vec.extend(aggregate_definition.command_handler_registry.handlers.keys().map(|x| x.clone()));
     let command_box = Box::new(command_vec);
 
     let (mut tx, rx): (Sender<AxonCommandResult>, Receiver<AxonCommandResult>) = channel(10);
@@ -163,20 +168,33 @@ pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug>(
             Ok(Some(inbound)) => {
                 debug!("Inbound message: {:?}", inbound);
                 if let Some(command_provider_inbound::Request::Command(command)) = inbound.request {
-                    let result = handle(&command, &handler_registry).await;
+                    let result = handle_command(&command, &aggregate_definition, &mut event_store_client).await;
                     match result.as_ref() {
                         Err(e) => warn!("Error while handling command: {:?}", e),
                         Ok(result) => debug!("Result from command handler: {:?}", result),
                     }
 
-                    if let Ok(Some(result)) = result.as_ref() {
+                    let result = match result {
+                        Ok(Some(result)) => { Some(result) }
+                        _ => None
+                    };
+
+                    if let Some(result) = result.as_ref() {
                         debug!("Emit events: {:?}", &result.events);
                         store_events(&mut event_store_client, &result).await.unwrap(); // TODO: error handling
                     }
 
+                    let wrapped_result = result.map(
+                        |r| EmitEventsAndResponse {
+                            target_aggregate_identifier: r.target_aggregate_identifier,
+                            events: vec![],
+                            response: r.response
+                        }
+                    );
+
                     let axon_command_result = AxonCommandResult {
                         message_identifier: command.message_identifier,
-                        result
+                        result: Ok(wrapped_result)
                     };
                     tx.send(axon_command_result).await.unwrap();
                 }
@@ -190,13 +208,6 @@ pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug>(
             }
         }
     }
-}
-
-async fn handle<W: Clone + 'static>(command: &Command, handler_registry: &TheHandlerRegistry<(),W>) -> Result<Option<W>> {
-    debug!("Incoming command: {:?}", command);
-    let handler = handler_registry.get(&command.name).ok_or(anyhow!("No handler for: {:?}", command.name))?;
-    let data = command.payload.clone().map(|p| p.data).ok_or(anyhow!("No payload data for: {:?}", command.name))?;
-    handler.handle(data, ()).await
 }
 
 fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx: Receiver<AxonCommandResult>) -> impl Stream<Item = CommandProviderOutbound> {
@@ -290,7 +301,7 @@ fn create_output_stream(client_id: String, command_box: Box<Vec<String>>, mut rx
     }
 }
 
-async fn store_events(client: &mut EventStoreClient<Channel>, events: &EmitEventsAndResponse) -> Result<()>{
+async fn store_events<P: std::fmt::Debug>(client: &mut EventStoreClient<Channel>, events: &EmitApplicableEventsAndResponse<P>) -> Result<()>{
     debug!("Client: {:?}: events: {:?}", client, events);
     let request = ReadHighestSequenceNrRequest {
         aggregate_id: events.target_aggregate_identifier.clone(),
@@ -301,15 +312,25 @@ async fn store_events(client: &mut EventStoreClient<Channel>, events: &EmitEvent
     let message_identifier = Uuid::new_v4();
     let now = std::time::SystemTime::now();
     let timestamp = now.duration_since(std::time::UNIX_EPOCH)?.as_millis() as i64;
-    let event_messages: Vec<Event> = events.events.iter().map(move |e| Event {
-        message_identifier: format!("{:?}", message_identifier.to_simple()),
-        timestamp,
-        aggregate_identifier: events.target_aggregate_identifier.clone(),
-        aggregate_sequence_number: response.to_sequence_nr + 1,
-        aggregate_type: "Greeting".to_string(),
-        payload: Some(e.clone()),
-        meta_data: HashMap::new(),
-        snapshot: false,
+    let event_messages: Vec<Event> = events.events.iter().map(move |e| {
+        let (type_name, event) = e;
+        let mut buf = Vec::new();
+        event.encode_u8(&mut buf).unwrap();
+        let e = SerializedObject {
+            r#type: type_name.to_string(),
+            revision: "".to_string(),
+            data: buf,
+        };
+        Event {
+            message_identifier: format!("{:?}", message_identifier.to_simple()),
+            timestamp,
+            aggregate_identifier: events.target_aggregate_identifier.clone(),
+            aggregate_sequence_number: response.to_sequence_nr + 1,
+            aggregate_type: "Greeting".to_string(),
+            payload: Some(e),
+            meta_data: HashMap::new(),
+            snapshot: false,
+        }
     }).collect();
     let request = Request::new(futures_util::stream::iter(event_messages));
     client.append_event(request).await?;

@@ -2,7 +2,7 @@ use anyhow::{Context,Result,anyhow};
 use log::{debug,error};
 use prost::{Message};
 use crate::axon_utils::{EmitApplicableEventsAndResponse, HandlerRegistry, command_worker, create_aggregate_definition, emit_applicable, emit_applicable_events_and_response, empty_handler_registry, wait_for_server, ApplicableTo};
-use crate::grpc_example::{Acknowledgement,GreetCommand,GreetedEvent,GreeterProjection,RecordCommand,StopCommand};
+use crate::grpc_example::{Acknowledgement,GreetCommand,GreetedEvent,GreeterProjection,RecordCommand,StartedRecordingEvent,StopCommand,StoppedRecordingEvent};
 
 pub async fn handle_commands() {
     if let Err(e) = internal_handle_commands().await {
@@ -16,7 +16,6 @@ async fn internal_handle_commands() -> Result<()> {
     let axon_connection = wait_for_server("proxy", 8124, "Command Processor").await.context("No connection")?;
     debug!("Axon connection: {:?}", axon_connection);
 
-    let mut old_handler_registry = empty_handler_registry();
     let mut handler_registry = empty_handler_registry();
 
     handler_registry.insert_with_output(
@@ -25,16 +24,16 @@ async fn internal_handle_commands() -> Result<()> {
         &(|c, p| Box::pin(handle_greet_command(c, p)))
     )?;
 
-    old_handler_registry.insert(
+    handler_registry.insert_with_output(
         "RecordCommand",
         &RecordCommand::decode,
-        &(|c, _| Box::pin(handle_record_command(c)))
+        &(|c, p| Box::pin(handle_record_command(c, p)))
     )?;
 
-    old_handler_registry.insert(
+    handler_registry.insert_with_output(
         "StopCommand",
         &StopCommand::decode,
-        &(|c, _| Box::pin(handle_stop_command(c)))
+        &(|c, p| Box::pin(handle_stop_command(c, p)))
     )?;
 
     let aggregate_definition = create_aggregate_definition(
@@ -44,11 +43,11 @@ async fn internal_handle_commands() -> Result<()> {
             projection.is_recording = true;
             projection
         }),
-        empty_handler_registry(),
+        handler_registry,
         empty_handler_registry()
     );
 
-    command_worker(axon_connection, old_handler_registry, aggregate_definition).await.context("Error while handling commands")
+    command_worker(axon_connection, aggregate_definition).await.context("Error while handling commands")
 }
 
 impl ApplicableTo for GreetedEvent {
@@ -60,6 +59,32 @@ impl ApplicableTo for GreetedEvent {
 
     fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection=GreeterProjection>> {
         Box::from(GreetedEvent::clone(self))
+    }
+}
+
+impl ApplicableTo for StartedRecordingEvent {
+    type Projection = GreeterProjection;
+
+    fn apply_to(self: &Self, projection: &mut Self::Projection) -> Result<()> {
+        projection.is_recording = true;
+        Ok(())
+    }
+
+    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection=GreeterProjection>> {
+        Box::from(StartedRecordingEvent::clone(self))
+    }
+}
+
+impl ApplicableTo for StoppedRecordingEvent {
+    type Projection = GreeterProjection;
+
+    fn apply_to(self: &Self, projection: &mut Self::Projection) -> Result<()> {
+        projection.is_recording = false;
+        Ok(())
+    }
+
+    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection=GreeterProjection>> {
+        Box::from(StoppedRecordingEvent::clone(self))
     }
 }
 
@@ -84,12 +109,22 @@ async fn handle_greet_command (command: GreetCommand, projection: GreeterProject
     Ok(Some(emit_events))
 }
 
-async fn handle_record_command (command: RecordCommand) -> Result<()> {
+async fn handle_record_command (command: RecordCommand, projection: GreeterProjection) -> Result<Option<EmitApplicableEventsAndResponse<GreeterProjection>>> {
     debug!("Record command handler: {:?}", command);
-    Ok(())
+    if projection.is_recording {
+        return Ok(None)
+    }
+    let mut emit_events = emit_applicable_events_and_response("xxx", "Acknowledgement", &())?;
+    emit_applicable(&mut emit_events, "StartedRecordingEvent", Box::from(StartedRecordingEvent {}))?;
+    Ok(Some(emit_events))
 }
 
-async fn handle_stop_command (command: StopCommand) -> Result<()> {
+async fn handle_stop_command (command: StopCommand, projection: GreeterProjection) -> Result<Option<EmitApplicableEventsAndResponse<GreeterProjection>>> {
     debug!("Stop command handler: {:?}", command);
-    Ok(())
+    if !projection.is_recording {
+        return Ok(None)
+    }
+    let mut emit_events = emit_applicable_events_and_response("xxx", "Acknowledgement", &())?;
+    emit_applicable(&mut emit_events, "StoppedRecordingEvent", Box::from(StoppedRecordingEvent {}))?;
+    Ok(Some(emit_events))
 }

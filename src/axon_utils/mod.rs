@@ -60,7 +60,7 @@ pub fn axon_serialize<T: Message>(type_name: &str, message: &T) -> Result<Serial
     Ok(result)
 }
 
-pub trait ApplicableTo where Self: VecU8Message + std::fmt::Debug {
+pub trait ApplicableTo where Self: VecU8Message + Send + Sync + std::fmt::Debug {
     /// The type of projection these messages can be applied to.
     type Projection;
 
