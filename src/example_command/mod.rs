@@ -1,7 +1,7 @@
 use anyhow::{Context,Result,anyhow};
 use log::{debug,error};
 use prost::{Message};
-use crate::axon_utils::{EmitApplicableEventsAndResponse, HandlerRegistry, TheHandlerRegistry, command_worker, create_aggregate_definition, emit_applicable, emit_applicable_events_and_response, empty_handler_registry, wait_for_server, ApplicableTo};
+use crate::axon_utils::{EmitApplicableEventsAndResponse, HandlerRegistry, TheHandlerRegistry, command_worker, create_aggregate_definition, emit_applicable, emit_applicable_events_and_response, empty_handler_registry, wait_for_server, ApplicableTo, empty_aggregate_registry};
 use crate::grpc_example::{Acknowledgement,GreetCommand,GreetedEvent,GreeterProjection,RecordCommand,StartedRecordingEvent,StopCommand,StoppedRecordingEvent};
 
 pub async fn handle_commands() {
@@ -86,7 +86,10 @@ async fn internal_handle_commands() -> Result<()> {
         sourcing_registry
     );
 
-    command_worker(axon_connection, aggregate_definition).await.context("Error while handling commands")
+    let mut aggregate_registry = empty_aggregate_registry();
+    aggregate_registry.handlers.insert(aggregate_definition.projection_name.clone(), Box::from(aggregate_definition));
+
+    command_worker(axon_connection, aggregate_registry).await.context("Error while handling commands")
 }
 
 async fn handle_sourcing_event<T: ApplicableTo<Projection=P>,P: Clone>(event: Box<T>, projection: P) -> Result<Option<P>> {

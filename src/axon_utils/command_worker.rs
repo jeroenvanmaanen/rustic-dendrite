@@ -75,8 +75,69 @@ impl<P> Clone for EmitApplicableEventsAndResponse<P> {
     }
 }
 
+pub trait AggregateRegistry {
+    fn insert(&mut self, aggregate_handle: Box<dyn AggregateHandle>) -> Result<()>;
+    fn get(&self, name: &str) -> Option<&Box<dyn AggregateHandle>>;
+    fn register(&self, commands: &mut Vec<String>, command_to_aggregate_mapping: &mut HashMap<String,String>);
+}
+
+pub struct TheAggregateRegistry {
+    pub handlers: HashMap<String,Box<dyn AggregateHandle>>,
+}
+
+impl AggregateRegistry for TheAggregateRegistry {
+    fn insert(&mut self, aggregate_handle: Box<dyn AggregateHandle>) -> Result<()> {
+        self.handlers.insert(aggregate_handle.name(), aggregate_handle);
+        Ok(())
+    }
+
+    fn get(&self, name: &str) -> Option<&Box<dyn AggregateHandle>> {
+        self.handlers.get(name)
+    }
+
+    fn register(&self, commands: &mut Vec<String>, command_to_aggregate_mapping: &mut HashMap<String,String>) {
+        for (aggregate_name, aggregate_handle) in &self.handlers {
+            let command_names = aggregate_handle.command_names();
+            for command_name in command_names {
+                commands.push(command_name.clone());
+                command_to_aggregate_mapping.insert(command_name.clone(), (*aggregate_name).clone());
+            }
+        }
+    }
+}
+
+pub fn empty_aggregate_registry() -> TheAggregateRegistry {
+    TheAggregateRegistry {
+        handlers: HashMap::new(),
+    }
+}
+
+#[tonic::async_trait]
+pub trait AggregateHandle: Send + Sync {
+    fn name(&self) -> String;
+    async fn handle(&self, command: &Command, client: &mut EventStoreClient<Channel>) -> Result<Option<EmitEventsAndResponse>>;
+    fn command_names(&self) -> Vec<String>;
+}
+
+#[tonic::async_trait]
+impl<P: VecU8Message + Send + Clone + std::fmt::Debug + 'static> AggregateHandle for AggregateDefinition<P> {
+    fn name(&self) -> String {
+        self.projection_name.clone()
+    }
+    async fn handle(&self, command: &Command, client: &mut EventStoreClient<Channel>) -> Result<Option<EmitEventsAndResponse>> {
+        handle_command(command, self, client).await
+    }
+    fn command_names(&self) -> Vec<String> {
+        let mut result = Vec::new();
+        for (command_name, _) in &self.command_handler_registry.handlers {
+            result.push((*command_name).clone());
+        }
+        result
+    }
+}
+
 pub struct AggregateDefinition<P: VecU8Message + Send + Clone + 'static> {
-    projection_name: String,
+    pub projection_name: String,
     empty_projection: Box<dyn Fn() -> P + Send + Sync>,
     aggregate_id_extractor_registry: TheHandlerRegistry<(),String>,
     command_handler_registry: TheHandlerRegistry<P,EmitApplicableEventsAndResponse<P>>,
@@ -117,7 +178,8 @@ async fn handle_command<P: VecU8Message + Send + Clone + std::fmt::Debug + 'stat
             debug!("Replaying event: {:?}", event);
             if let Some(payload) = event.payload {
                 let sourcing_handler = aggregate_definition.sourcing_handler_registry.get(&payload.r#type).ok_or(anyhow!("Missing sourcing handler for {:?}", payload.r#type))?;
-                if let Some(p) = (sourcing_handler).handle(payload.data, projection.clone()).await? {
+                let projection_clone = projection.clone();
+                if let Some(p) = (sourcing_handler).handle(payload.data, projection_clone).await? {
                     projection = p;
                 }
             }
@@ -168,23 +230,20 @@ struct AxonCommandResult {
     result: Result<Option<EmitEventsAndResponse>>,
 }
 
-pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug + 'static>(
+pub async fn command_worker(
     axon_connection: AxonConnection,
-    aggregate_definition: AggregateDefinition<P>
+    aggregate_registry: TheAggregateRegistry
 ) -> Result<()> {
     debug!("Command worker: start");
-
-    debug!("Projection name: {:?}", aggregate_definition.projection_name);
-    let empty_projection = (aggregate_definition.empty_projection)();
-    debug!("Empty projection: {:?}", empty_projection);
 
     let axon_connection_clone = axon_connection.clone();
     let mut client = CommandServiceClient::new(axon_connection.conn);
     let mut event_store_client = EventStoreClient::new(axon_connection_clone.conn);
     let client_id = axon_connection.id.clone();
 
+    let mut command_to_aggregate_mapping = HashMap::new();
     let mut command_vec: Vec<String> = vec![];
-    command_vec.extend(aggregate_definition.command_handler_registry.handlers.keys().map(|x| x.clone()));
+    aggregate_registry.register(&mut command_vec, &mut command_to_aggregate_mapping);
     let command_box = Box::new(command_vec);
 
     let (mut tx, rx): (Sender<AxonCommandResult>, Receiver<AxonCommandResult>) = channel(10);
@@ -201,7 +260,14 @@ pub async fn command_worker<P: VecU8Message + Send + Clone + std::fmt::Debug + '
             Ok(Some(inbound)) => {
                 debug!("Inbound message: {:?}", inbound);
                 if let Some(command_provider_inbound::Request::Command(command)) = inbound.request {
-                    let result = handle_command(&command, &aggregate_definition, &mut event_store_client).await;
+                    let command_name = command.name.clone();
+                    let mut result = Err(anyhow!("Could not find aggregate handler"));
+                    if let Some(aggregate_name) = command_to_aggregate_mapping.get(&command_name) {
+                        if let Some(aggregate_definition) = aggregate_registry.get(aggregate_name) {
+                            result = aggregate_definition.handle(&command, &mut event_store_client).await
+                        }
+                    }
+
                     match result.as_ref() {
                         Err(e) => warn!("Error while handling command: {:?}", e),
                         Ok(result) => debug!("Result from command handler: {:?}", result),

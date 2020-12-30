@@ -13,7 +13,7 @@ mod handler_registry;
 
 pub use command_submit::init as init_command_sender;
 pub use command_worker::command_worker as command_worker;
-pub use command_worker::{AggregateDefinition,EmitApplicableEventsAndResponse,EmitEventsAndResponse,create_aggregate_definition,emit,emit_applicable,emit_applicable_events_and_response,emit_events,emit_events_and_response};
+pub use command_worker::{AggregateDefinition,AggregateRegistry,EmitApplicableEventsAndResponse,EmitEventsAndResponse,TheAggregateRegistry,create_aggregate_definition,emit,emit_applicable,emit_applicable_events_and_response,emit_events,emit_events_and_response,empty_aggregate_registry};
 pub use connection::wait_for_server as wait_for_server;
 pub use handler_registry::empty_handler_registry as empty_handler_registry;
 pub use handler_registry::{HandlerRegistry,TheHandlerRegistry};
