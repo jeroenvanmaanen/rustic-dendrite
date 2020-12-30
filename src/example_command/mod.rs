@@ -1,19 +1,22 @@
 use anyhow::{Context,Result,anyhow};
 use log::{debug,error};
 use prost::{Message};
-use crate::axon_utils::{EmitApplicableEventsAndResponse, HandlerRegistry, TheHandlerRegistry, command_worker, create_aggregate_definition, emit_applicable, emit_applicable_events_and_response, empty_handler_registry, wait_for_server, ApplicableTo, empty_aggregate_registry};
+use crate::axon_utils::{ApplicableTo, AxonConnection, AxonServerHandle, EmitApplicableEventsAndResponse, HandlerRegistry, TheHandlerRegistry, command_worker, create_aggregate_definition, emit_applicable, emit_applicable_events_and_response, empty_handler_registry, empty_aggregate_registry};
 use crate::grpc_example::{Acknowledgement,GreetCommand,GreetedEvent,GreeterProjection,RecordCommand,StartedRecordingEvent,StopCommand,StoppedRecordingEvent};
 
-pub async fn handle_commands() {
-    if let Err(e) = internal_handle_commands().await {
+pub async fn handle_commands(axon_server_handle : AxonServerHandle) {
+    if let Err(e) = internal_handle_commands(axon_server_handle).await {
         error!("Error while handling commands: {:?}", e);
     }
     debug!("Stopped handling commands for example application");
 }
 
-async fn internal_handle_commands() -> Result<()> {
+async fn internal_handle_commands(axon_server_handle : AxonServerHandle) -> Result<()> {
     debug!("Handle commands for example application");
-    let axon_connection = wait_for_server("proxy", 8124, "Command Processor").await.context("No connection")?;
+    let axon_connection = AxonConnection {
+        id: axon_server_handle.display_name,
+        conn: axon_server_handle.conn,
+    };
     debug!("Axon connection: {:?}", axon_connection);
 
     let mut aggregate_id_extractor_registry: TheHandlerRegistry<(),String> = empty_handler_registry();

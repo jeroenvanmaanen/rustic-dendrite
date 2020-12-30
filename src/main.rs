@@ -12,10 +12,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     info!("Rustic dendrite API service started");
 
-    tokio::spawn(handle_commands());
+    let greeter_server = init().await.unwrap();
+
+    tokio::spawn(handle_commands(greeter_server.axon_server_handle.clone()));
 
     let addr = "0.0.0.0:8181".parse()?;
-    let greeter_server = init().await.unwrap();
     info!("Starting gRPC server");
     Server::builder()
         .add_service(GreeterServiceServer::new(greeter_server))

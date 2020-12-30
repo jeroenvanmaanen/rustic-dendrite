@@ -10,7 +10,7 @@ use crate::grpc_example::{Acknowledgement, Empty, GreetedEvent, Greeting, GreetC
 
 #[derive(Debug)]
 pub struct GreeterServer {
-    axon_server_handle: AxonServerHandle,
+    pub axon_server_handle: AxonServerHandle,
 }
 
 #[tonic::async_trait]
