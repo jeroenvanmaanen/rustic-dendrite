@@ -8,6 +8,7 @@ use crate::axon_server::SerializedObject;
 mod command_submit;
 mod command_worker;
 mod connection;
+mod event_processor;
 mod event_query;
 mod handler_registry;
 
@@ -17,6 +18,7 @@ pub use command_worker::{AggregateDefinition,AggregateRegistry,EmitApplicableEve
 pub use connection::wait_for_server as wait_for_server;
 pub use handler_registry::empty_handler_registry as empty_handler_registry;
 pub use handler_registry::{HandlerRegistry,TheHandlerRegistry};
+pub use event_processor::event_processor;
 pub use event_query::query_events;
 
 #[derive(Debug, Clone)]
