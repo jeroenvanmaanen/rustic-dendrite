@@ -1,5 +1,6 @@
 use anyhow::{Context,Result};
 use log::{debug,error};
+use super::elastic_search_utils::wait_for_elastic_search;
 use crate::axon_utils::{AxonServerHandle,event_processor};
 
 pub async fn process_events(axon_server_handle : AxonServerHandle) {
@@ -10,5 +11,7 @@ pub async fn process_events(axon_server_handle : AxonServerHandle) {
 }
 
 async fn internal_process_events(axon_server_handle : AxonServerHandle) -> Result<()> {
+    let client = wait_for_elastic_search().await?;
+    debug!("Elastic Search client: {:?}", client);
     event_processor(axon_server_handle).await.context("Error while handling commands")
 }
