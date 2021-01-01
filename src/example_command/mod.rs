@@ -1,7 +1,7 @@
 use anyhow::{Context,Result,anyhow};
 use log::{debug,error};
 use prost::{Message};
-use crate::axon_utils::{ApplicableTo, AxonConnection, AxonServerHandle, EmitApplicableEventsAndResponse, HandlerRegistry, TheHandlerRegistry, command_worker, create_aggregate_definition, emit_applicable, emit_applicable_events_and_response, empty_handler_registry, empty_aggregate_registry};
+use crate::axon_utils::{ApplicableTo, AxonConnection, AxonServerHandle, EmitApplicableEventsAndResponse, HandlerRegistry, command_worker, create_aggregate_definition, emit_applicable, emit_applicable_events_and_response, empty_handler_registry, empty_aggregate_registry};
 use crate::grpc_example::{Acknowledgement,GreetCommand,GreetedEvent,GreeterProjection,RecordCommand,StartedRecordingEvent,StopCommand,StoppedRecordingEvent};
 
 pub async fn handle_commands(axon_server_handle : AxonServerHandle) {
@@ -19,23 +19,23 @@ async fn internal_handle_commands(axon_server_handle : AxonServerHandle) -> Resu
     };
     debug!("Axon connection: {:?}", axon_connection);
 
-    let mut aggregate_id_extractor_registry: TheHandlerRegistry<(),String> = empty_handler_registry();
-    let mut sourcing_registry: TheHandlerRegistry<GreeterProjection,GreeterProjection> = empty_handler_registry();
-    let mut handler_registry = empty_handler_registry();
+    let mut aggregate_id_extractor_registry = empty_handler_registry();
+    let mut sourcing_handler_registry = empty_handler_registry();
+    let mut command_handler_registry = empty_handler_registry();
 
-    sourcing_registry.insert_with_output(
+    sourcing_handler_registry.insert_with_output(
         "GreetedEvent",
         &GreetedEvent::decode,
         &(|c, p| Box::pin(handle_sourcing_event(Box::from(c), p)))
     )?;
 
-    sourcing_registry.insert_with_output(
+    sourcing_handler_registry.insert_with_output(
         "StoppedRecordingEvent",
         &StoppedRecordingEvent::decode,
         &(|c, p| Box::pin(handle_sourcing_event(Box::from(c), p)))
     )?;
 
-    sourcing_registry.insert_with_output(
+    sourcing_handler_registry.insert_with_output(
         "StartedRecordingEvent",
         &StartedRecordingEvent::decode,
         &(|c, p| Box::pin(handle_sourcing_event(Box::from(c), p)))
@@ -47,7 +47,7 @@ async fn internal_handle_commands(axon_server_handle : AxonServerHandle) -> Resu
         &(|_, _| Box::pin(fixed_aggregate_id()))
     )?;
 
-    handler_registry.insert_with_output(
+    command_handler_registry.insert_with_output(
         "GreetCommand",
         &GreetCommand::decode,
         &(|c, p| Box::pin(handle_greet_command(c, p)))
@@ -59,7 +59,7 @@ async fn internal_handle_commands(axon_server_handle : AxonServerHandle) -> Resu
         &(|_, _| Box::pin(fixed_aggregate_id()))
     )?;
 
-    handler_registry.insert_with_output(
+    command_handler_registry.insert_with_output(
         "RecordCommand",
         &RecordCommand::decode,
         &(|c, p| Box::pin(handle_record_command(c, p)))
@@ -71,22 +71,24 @@ async fn internal_handle_commands(axon_server_handle : AxonServerHandle) -> Resu
         &(|_, _| Box::pin(fixed_aggregate_id()))
     )?;
 
-    handler_registry.insert_with_output(
+    command_handler_registry.insert_with_output(
         "StopCommand",
         &StopCommand::decode,
         &(|c, p| Box::pin(handle_stop_command(c, p)))
     )?;
 
+    let empty_projection = Box::new(|| {
+        let mut projection = GreeterProjection::default();
+        projection.is_recording = true;
+        projection
+    });
+
     let aggregate_definition = create_aggregate_definition(
         "GreeterProjection".to_string(),
-        Box::new(|| {
-            let mut projection = GreeterProjection::default();
-            projection.is_recording = true;
-            projection
-        }),
+        empty_projection,
         aggregate_id_extractor_registry,
-        handler_registry,
-        sourcing_registry
+        command_handler_registry,
+        sourcing_handler_registry
     );
 
     let mut aggregate_registry = empty_aggregate_registry();
