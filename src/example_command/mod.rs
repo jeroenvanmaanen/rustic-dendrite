@@ -97,7 +97,7 @@ async fn internal_handle_commands(axon_server_handle : AxonServerHandle) -> Resu
     command_worker(axon_connection, aggregate_registry).await.context("Error while handling commands")
 }
 
-async fn handle_sourcing_event<T: ApplicableTo<Projection=P>,P: Clone>(event: Box<T>, projection: P) -> Result<Option<P>> {
+async fn handle_sourcing_event<T: ApplicableTo<P>,P: Clone>(event: Box<T>, projection: P) -> Result<Option<P>> {
     let mut p = projection.clone();
     event.apply_to(&mut p)?;
     Ok(Some(p))
@@ -107,43 +107,40 @@ async fn fixed_aggregate_id() -> Result<Option<String>> {
     Ok(Some("xxx".to_string()))
 }
 
-impl ApplicableTo for GreetedEvent {
-    type Projection = GreeterProjection;
+impl ApplicableTo<GreeterProjection> for GreetedEvent {
 
-    fn apply_to(self: &Self, projection: &mut Self::Projection) -> Result<()> {
+    fn apply_to(self: &Self, projection: &mut GreeterProjection) -> Result<()> {
         debug!("Apply greeted event to GreeterProjection: {:?}", projection.is_recording);
         Ok(())
     }
 
-    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection=GreeterProjection>> {
+    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<GreeterProjection>> {
         Box::from(GreetedEvent::clone(self))
     }
 }
 
-impl ApplicableTo for StartedRecordingEvent {
-    type Projection = GreeterProjection;
+impl ApplicableTo<GreeterProjection> for StartedRecordingEvent {
 
-    fn apply_to(self: &Self, projection: &mut Self::Projection) -> Result<()> {
+    fn apply_to(self: &Self, projection: &mut GreeterProjection) -> Result<()> {
         debug!("Apply StartedRecordingEvent to GreeterProjection: {:?}", projection.is_recording);
         projection.is_recording = true;
         Ok(())
     }
 
-    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection=GreeterProjection>> {
+    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<GreeterProjection>> {
         Box::from(StartedRecordingEvent::clone(self))
     }
 }
 
-impl ApplicableTo for StoppedRecordingEvent {
-    type Projection = GreeterProjection;
+impl ApplicableTo<GreeterProjection> for StoppedRecordingEvent {
 
-    fn apply_to(self: &Self, projection: &mut Self::Projection) -> Result<()> {
+    fn apply_to(self: &Self, projection: &mut GreeterProjection) -> Result<()> {
         debug!("Apply StoppedRecordingEvent to GreeterProjection: {:?}", projection.is_recording);
         projection.is_recording = false;
         Ok(())
     }
 
-    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection=GreeterProjection>> {
+    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<GreeterProjection>> {
         Box::from(StoppedRecordingEvent::clone(self))
     }
 }

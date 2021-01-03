@@ -62,12 +62,19 @@ pub fn axon_serialize<T: Message>(type_name: &str, message: &T) -> Result<Serial
     Ok(result)
 }
 
-pub trait ApplicableTo where Self: VecU8Message + Send + Sync + std::fmt::Debug {
-    /// The type of projection these messages can be applied to.
-    type Projection;
+pub trait ApplicableTo<Projection> where Self: VecU8Message + Send + Sync + std::fmt::Debug {
 
     /// Applies this message to the given projection.
-    fn apply_to(self: &Self, projection: &mut Self::Projection) -> Result<()>;
+    fn apply_to(self: &Self, projection: &mut Projection) -> Result<()>;
 
-    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection=Self::Projection>>;
+    fn box_clone(self: &Self) -> Box<dyn ApplicableTo<Projection>>;
+}
+
+#[tonic::async_trait]
+pub trait AsyncApplicableTo<Projection> where Self: VecU8Message + Send + Sync + std::fmt::Debug {
+
+    /// Applies this message to the given projection.
+    async fn apply_to(self: &Self, projection: &mut Projection) -> Result<()>;
+
+    fn box_clone(self: &Self) -> Box<dyn AsyncApplicableTo<Projection>>;
 }

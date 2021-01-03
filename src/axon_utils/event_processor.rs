@@ -4,7 +4,8 @@ use futures_core::stream::Stream;
 use log::debug;
 use tokio::sync::mpsc::{Sender,Receiver, channel};
 use super::AxonServerHandle;
-use crate::axon_server::event::{EventWithToken,GetEventsRequest};
+use super::handler_registry::TheHandlerRegistry;
+use crate::axon_server::event::{Event, EventWithToken,GetEventsRequest};
 use crate::axon_server::event::event_store_client::EventStoreClient;
 
 #[derive(Debug)]
@@ -12,8 +13,10 @@ struct AxonEventProcessed {
     message_identifier: String,
 }
 
-pub async fn event_processor(
-    axon_server_handle: AxonServerHandle
+pub async fn event_processor<Q: Send + Sync + Clone>(
+    axon_server_handle: AxonServerHandle,
+    query_model: Q,
+    event_handler_registry: TheHandlerRegistry<Q,Option<Q>>
 ) -> Result<()> {
     let conn = axon_server_handle.conn;
     let mut client = EventStoreClient::new(conn);
@@ -30,7 +33,14 @@ pub async fn event_processor(
     loop {
         let event_with_token = events.message().await?;
         debug!("Event with token: {:?}", event_with_token);
+
         if let Some(EventWithToken { event: Some(event), ..}) = event_with_token {
+            if let Event { payload: Some(serialized_object), .. } = event {
+                if let Some(event_handler) = event_handler_registry.handlers.get(&serialized_object.r#type) {
+                    (event_handler).handle(serialized_object.data, query_model.clone()).await?;
+                }
+            }
+
             tx.send(AxonEventProcessed {
                 message_identifier: event.message_identifier,
             }).await?;

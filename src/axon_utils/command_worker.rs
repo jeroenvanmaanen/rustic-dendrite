@@ -57,7 +57,7 @@ pub struct EmitEventsAndResponse {
 
 #[derive(Debug)]
 pub struct EmitApplicableEventsAndResponse<P> {
-    events: Vec<(String,Box<dyn ApplicableTo<Projection=P>>)>,
+    events: Vec<(String,Box<dyn ApplicableTo<P>>)>,
     response: Option<SerializedObject>,
 }
 
@@ -219,7 +219,7 @@ pub fn emit<T: Message>(holder: &mut EmitEventsAndResponse, type_name: &str, eve
     Ok(())
 }
 
-pub fn emit_applicable<P: VecU8Message + Send + Clone>(holder: &mut EmitApplicableEventsAndResponse<P>, type_name: &str, event: Box<dyn ApplicableTo<Projection=P>>) -> Result<()> {
+pub fn emit_applicable<P: VecU8Message + Send + Clone>(holder: &mut EmitApplicableEventsAndResponse<P>, type_name: &str, event: Box<dyn ApplicableTo<P>>) -> Result<()> {
     holder.events.push((type_name.to_string(), event));
     Ok(())
 }
