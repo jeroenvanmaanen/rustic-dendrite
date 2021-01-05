@@ -5,12 +5,28 @@ use prost::Message;
 use serde_json::json;
 use sha2::{Sha256, Digest};
 use super::elastic_search_utils::wait_for_elastic_search;
-use crate::axon_utils::{AsyncApplicableTo, AxonServerHandle, HandlerRegistry, event_processor, empty_handler_registry, TheHandlerRegistry};
+use crate::axon_utils::{AsyncApplicableTo, AxonServerHandle, HandlerRegistry, TheHandlerRegistry, TokenStore, event_processor, empty_handler_registry};
 use crate::grpc_example::{GreetedEvent,Greeting};
 
 #[derive(Clone)]
 struct ExampleQueryModel {
     es_client: Elasticsearch,
+}
+
+#[tonic::async_trait]
+impl TokenStore for ExampleQueryModel {
+    async fn store_token(&self, token: i64) {
+        let result = self.es_client
+            .index(IndexParts::IndexId("dendrite-token-store", "greeting"))
+            .body(json!({
+                    "id": "greeting",
+                    "token": token,
+                }))
+            .send()
+            .await
+        ;
+        debug!("Elastic Search store token result: {:?}", result);
+    }
 }
 
 pub async fn process_events(axon_server_handle : AxonServerHandle) {

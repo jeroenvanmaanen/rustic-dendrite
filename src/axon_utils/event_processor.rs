@@ -13,7 +13,12 @@ struct AxonEventProcessed {
     message_identifier: String,
 }
 
-pub async fn event_processor<Q: Send + Sync + Clone>(
+#[tonic::async_trait]
+pub trait TokenStore {
+    async fn store_token(&self, token: i64);
+}
+
+pub async fn event_processor<Q: TokenStore + Send + Sync + Clone>(
     axon_server_handle: AxonServerHandle,
     query_model: Q,
     event_handler_registry: TheHandlerRegistry<Q,Option<Q>>
@@ -34,12 +39,14 @@ pub async fn event_processor<Q: Send + Sync + Clone>(
         let event_with_token = events.message().await?;
         debug!("Event with token: {:?}", event_with_token);
 
-        if let Some(EventWithToken { event: Some(event), ..}) = event_with_token {
+        if let Some(EventWithToken { event: Some(event), token, ..}) = event_with_token {
             if let Event { payload: Some(serialized_object), .. } = event {
                 if let Some(event_handler) = event_handler_registry.handlers.get(&serialized_object.r#type) {
                     (event_handler).handle(serialized_object.data, query_model.clone()).await?;
                 }
             }
+
+            query_model.store_token(token).await;
 
             tx.send(AxonEventProcessed {
                 message_identifier: event.message_identifier,
