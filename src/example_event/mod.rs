@@ -1,8 +1,8 @@
-use anyhow::{Context,Result};
-use elasticsearch::{Elasticsearch, IndexParts};
+use anyhow::{anyhow,Context,Result};
+use elasticsearch::{Elasticsearch, IndexParts, GetParts};
 use log::{debug,error};
 use prost::Message;
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Sha256, Digest};
 use super::elastic_search_utils::wait_for_elastic_search;
 use crate::axon_utils::{AsyncApplicableTo, AxonServerHandle, HandlerRegistry, TheHandlerRegistry, TokenStore, event_processor, empty_handler_registry};
@@ -17,7 +17,7 @@ struct ExampleQueryModel {
 impl TokenStore for ExampleQueryModel {
     async fn store_token(&self, token: i64) {
         let result = self.es_client
-            .index(IndexParts::IndexId("dendrite-token-store", "greeting"))
+            .index(IndexParts::IndexId("tracking-token", "greeting"))
             .body(json!({
                     "id": "greeting",
                     "token": token,
@@ -26,6 +26,22 @@ impl TokenStore for ExampleQueryModel {
             .await
         ;
         debug!("Elastic Search store token result: {:?}", result);
+    }
+
+    async fn retrieve_token(&self) -> Result<i64> {
+        let response = self.es_client
+            .get(GetParts::IndexId("tracking-token", "greeting"))
+            ._source(&["token"])
+            .send()
+            .await?
+        ;
+        let value = response.json::<Value>().await?;
+        debug!("Retrieved response value: {:?}", value);
+        if let Value::Number(token) = &value["_source"]["token"] {
+            debug!("Retrieved token: {:?}", token);
+            return token.as_i64().ok_or(anyhow!("Token is not an i64"));
+        }
+        Ok(-1)
     }
 }
 

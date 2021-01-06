@@ -45,8 +45,10 @@ async fn wait_for_status_ready(client: &Elasticsearch) -> Result<()> {
         let response_body = response.json::<Value>().await?;
         let status = response_body.as_object().map(|o| o.get("status")).flatten();
         debug!("Elastic Search status: {:?}", status);
-        if status == Some(&Value::String("green".to_string())) {
-            return Ok(());
+        if let Some(Value::String(status_code)) = status {
+            if *status_code != "red" {
+                return Ok(());
+            }
         }
         delay_for(interval).await;
     }

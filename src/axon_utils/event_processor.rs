@@ -16,6 +16,7 @@ struct AxonEventProcessed {
 #[tonic::async_trait]
 pub trait TokenStore {
     async fn store_token(&self, token: i64);
+    async fn retrieve_token(&self) -> Result<i64>;
 }
 
 pub async fn event_processor<Q: TokenStore + Send + Sync + Clone>(
@@ -28,7 +29,9 @@ pub async fn event_processor<Q: TokenStore + Send + Sync + Clone>(
 
     let (mut tx, rx): (Sender<AxonEventProcessed>, Receiver<AxonEventProcessed>) = channel(10);
 
-    let outbound = create_output_stream(axon_server_handle.display_name, rx);
+    let initial_token = query_model.retrieve_token().await.unwrap_or(-1) + 1;
+    debug!("Initial token: {:?}", initial_token);
+    let outbound = create_output_stream(axon_server_handle.display_name, initial_token, rx);
 
     debug!("Event Processor: calling open_stream");
     let response = client.list_events(outbound).await?;
@@ -55,7 +58,7 @@ pub async fn event_processor<Q: TokenStore + Send + Sync + Clone>(
     }
 }
 
-fn create_output_stream(client_id: String, mut rx: Receiver<AxonEventProcessed>) -> impl Stream<Item = GetEventsRequest> {
+fn create_output_stream(client_id: String, initial_token: i64, mut rx: Receiver<AxonEventProcessed>) -> impl Stream<Item = GetEventsRequest> {
     stream! {
         debug!("Event Processor: stream: start: {:?}", rx);
 
@@ -63,7 +66,7 @@ fn create_output_stream(client_id: String, mut rx: Receiver<AxonEventProcessed>)
         let mut permits = permits_batch_size * 2;
 
         let mut request = GetEventsRequest {
-            tracking_token: 0,
+            tracking_token: initial_token,
             number_of_permits: permits,
             client_id: client_id,
             component_name: "Dendrite".to_string(),
