@@ -6,6 +6,7 @@ use tonic::transport::Server;
 use rustic_dendrite::example_api::init;
 use rustic_dendrite::example_command::handle_commands;
 use rustic_dendrite::example_event::process_events;
+use rustic_dendrite::example_query::process_queries;
 use rustic_dendrite::grpc_example::greeter_service_server::GreeterServiceServer;
 
 #[tokio::main]
@@ -18,6 +19,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(handle_commands(greeter_server.axon_server_handle.clone()));
 
     tokio::spawn(process_events(greeter_server.axon_server_handle.clone()));
+
+    tokio::spawn(process_queries(greeter_server.axon_server_handle.clone()));
 
     let addr = "0.0.0.0:8181".parse()?;
     info!("Starting gRPC server");

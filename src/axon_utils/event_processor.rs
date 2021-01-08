@@ -5,7 +5,7 @@ use log::debug;
 use tokio::sync::mpsc::{Sender,Receiver, channel};
 use super::AxonServerHandle;
 use super::handler_registry::TheHandlerRegistry;
-use crate::axon_server::event::{Event, EventWithToken,GetEventsRequest};
+use crate::axon_server::event::{Event,EventWithToken,GetEventsRequest};
 use crate::axon_server::event::event_store_client::EventStoreClient;
 
 #[derive(Debug)]
