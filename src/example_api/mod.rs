@@ -96,9 +96,11 @@ impl GreeterService for GreeterServer {
                     }
                 }
             }
-            tx.send(Ok(Greeting {
+            let greeting = Greeting {
                 message: "End of stream -oo-".to_string(),
-            })).await.ok();
+            };
+            debug!("End of stream: {:?}", greeting);
+            tx.send(Ok(greeting)).await.ok();
         });
 
         Ok(Response::new(rx))
@@ -111,14 +113,19 @@ impl GreeterService for GreeterServer {
         let query = request.into_inner();
         let query_response = self.axon_server_handle.send_query("SearchQuery", Box::new(&query)).await.map_err(to_status)?;
 
-        for serialized_object in query_response {
-            let search_response = SearchResponse::decode(Bytes::from(serialized_object.data)).map_err(decode_error_to_status)?;
-            debug!("Search response: {:?}", search_response);
-            for greeting in search_response.greetings {
-                debug!("Greeting: {:?}", greeting);
-                tx.send(Ok(greeting)).await.map_err(|e| Status::unknown(e.to_string()))?;
+        tokio::spawn(async move {
+            for serialized_object in query_response {
+                if let Ok(search_response) = SearchResponse::decode(Bytes::from(serialized_object.data)) {
+                    debug!("Search response: {:?}", search_response);
+                    for greeting in search_response.greetings {
+                        debug!("Greeting: {:?}", greeting);
+                        tx.send(Ok(greeting)).await.ok();
+                    }
+                }
+                debug!("Next!");
             }
-        }
+            debug!("Done!")
+        });
 
         Ok(Response::new(rx))
     }

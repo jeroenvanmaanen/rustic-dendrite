@@ -143,6 +143,7 @@ fn create_output_stream(client_id: String, query_box: Box<Vec<String>>, mut rx: 
                 instruction_id: format!("{:?}", instruction_id.to_simple()),
                 request: Some(query_provider_outbound::Request::QueryResponse(response)),
             };
+            debug!("QueryResponse instruction: {:?}", instruction);
             yield instruction.to_owned();
 
             let complete_id = Uuid::new_v4();
@@ -150,12 +151,13 @@ fn create_output_stream(client_id: String, query_box: Box<Vec<String>>, mut rx: 
                 message_id: format!("{:?}", complete_id.to_simple()),
                 request_id: axon_query_result.message_identifier.clone(),
             };
-            let instruction_id = Uuid::new_v4();
-            let instruction = QueryProviderOutbound {
-                instruction_id: format!("{:?}", instruction_id.to_simple()),
+            let complete_instruction_id = Uuid::new_v4();
+            let complete_instruction = QueryProviderOutbound {
+                instruction_id: format!("{:?}", complete_instruction_id.to_simple()),
                 request: Some(query_provider_outbound::Request::QueryComplete(complete)),
             };
-            yield instruction.to_owned();
+            debug!("Complete instruction: {:?}", complete_instruction);
+            yield complete_instruction.to_owned();
 
             permits -= 1;
             if permits <= permits_batch_size {
