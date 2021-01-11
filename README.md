@@ -48,6 +48,7 @@ The next task is to split off the example project from the library, and publish 
 
 After that:
 
+* Add macros to make the definition of handlers more ergonomic
 * Add in-memory caching of aggregate projections
 * Add support for storing snapshots of aggregate projections in AxonServer.
 * Add support for segmentation to distribute the load on tracking event processors.
