@@ -2,6 +2,8 @@
 
 A [Rust](https://www.rust-lang.org) library to connect to [AxonServer](https://axoniq.io/product-overview/axon-server).
 
+This project has _moved_ to [dendrite2go/rustic-dendrite](https://github.com/dendrite2go/rustic-dendrite).
+
 This project is a sibling of [dendrite2go](https://github.com/dendrite2go) and [archetype-go-axon](https://github.com/dendrite2go/archetype-go-axon), but for the Rust programming language.
 
 # Core concepts
