@@ -10,10 +10,8 @@ service GreeterService {
     rpc Record (Empty) returns (Empty) {}
     rpc Stop (Empty) returns (Empty) {}
     rpc Greetings (Empty) returns (stream Greeting) {}
-/*
-    rpc Record (Empty) returns (Empty) {}
-    rpc Stop (Empty) returns (Empty) {}
     rpc Search (SearchQuery) returns (stream Greeting) {}
+/*
     rpc Time (AccessToken) returns (Greeting) {}
 
     rpc ListTrustedKeys (Empty) returns (stream PublicKey) {}
@@ -114,6 +112,10 @@ message PropertyChangedEvent {
 
 message SearchQuery {
     string query = 1;
+}
+
+message SearchResponse {
+    repeated Greeting greetings = 1;
 }
 
 // Access management

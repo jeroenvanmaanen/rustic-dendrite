@@ -42,6 +42,13 @@ case "$1" in
   VARIABLE=''
   shift
   ;;
+--search)
+  PROTO="grpc_example.proto"
+  PORT='3000'
+  URL='grpc_example.GreeterService/Search'
+  VARIABLE='query'
+  shift
+  ;;
 --direct)
   PROTO="grpc_example.proto"
   PORT='8181'

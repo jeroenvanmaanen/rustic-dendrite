@@ -12,6 +12,7 @@ mod event_processor;
 mod event_query;
 mod handler_registry;
 mod query_processor;
+mod query_submit;
 
 pub use command_submit::init as init_command_sender;
 pub use command_worker::command_worker as command_worker;
@@ -50,6 +51,11 @@ where T: Message + Sized
 #[tonic::async_trait]
 pub trait CommandSink {
     async fn send_command(&self, command_type: &str, command: Box<&(dyn VecU8Message + Sync)>) -> Result<Option<SerializedObject>>;
+}
+
+#[tonic::async_trait]
+pub trait QuerySink {
+    async fn send_query<'a>(&self, query_type: &str, query: Box<&(dyn VecU8Message + Sync)>) -> Result<Vec<SerializedObject>>;
 }
 
 pub fn axon_serialize<T: Message>(type_name: &str, message: &T) -> Result<SerializedObject> {

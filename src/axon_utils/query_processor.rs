@@ -8,7 +8,7 @@ use tonic::Request;
 use uuid::Uuid;
 use super::handler_registry::TheHandlerRegistry;
 use crate::axon_server::{FlowControl,SerializedObject};
-use crate::axon_server::query::{QueryRequest,QueryResponse,QuerySubscription};
+use crate::axon_server::query::{QueryComplete,QueryRequest,QueryResponse,QuerySubscription};
 use crate::axon_server::query::{QueryProviderOutbound,query_provider_inbound,query_provider_outbound};
 use crate::axon_server::query::query_service_client::QueryServiceClient;
 use crate::axon_utils::AxonServerHandle;
@@ -18,7 +18,7 @@ pub trait QueryContext {
 
 #[derive(Debug,Clone)]
 pub struct QueryResult {
-    payload: Option<SerializedObject>,
+    pub payload: Option<SerializedObject>,
 }
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ pub async fn query_processor<Q: QueryContext + Send + Sync + Clone>(
     query_context: Q,
     query_handler_registry: TheHandlerRegistry<Q,QueryResult>
 ) -> Result<()> {
-    debug!("Command worker: start");
+    debug!("Query processor: start");
 
     let mut client = QueryServiceClient::new(axon_server_handle.conn);
     let client_id = axon_server_handle.display_name.clone();
@@ -47,7 +47,7 @@ pub async fn query_processor<Q: QueryContext + Send + Sync + Clone>(
 
     let outbound = create_output_stream(client_id, query_box, rx);
 
-    debug!("Command worker: calling open_stream");
+    debug!("Query processor: calling open_stream");
     let response = client.open_stream(Request::new(outbound)).await?;
     debug!("Stream response: {:?}", response);
 
@@ -66,8 +66,8 @@ pub async fn query_processor<Q: QueryContext + Send + Sync + Clone>(
                     }
 
                     match result.as_ref() {
-                        Err(e) => warn!("Error while handling command: {:?}", e),
-                        Ok(Some(result)) => debug!("Result from command handler: {:?}", result),
+                        Err(e) => warn!("Error while handling query: {:?}", e),
+                        Ok(Some(result)) => debug!("Result from query handler: {:?}", result),
                         Ok(None) => debug!("Result from query handler: None"),
                     }
 
@@ -144,6 +144,19 @@ fn create_output_stream(client_id: String, query_box: Box<Vec<String>>, mut rx: 
                 request: Some(query_provider_outbound::Request::QueryResponse(response)),
             };
             yield instruction.to_owned();
+
+            let complete_id = Uuid::new_v4();
+            let complete = QueryComplete {
+                message_id: format!("{:?}", complete_id.to_simple()),
+                request_id: axon_query_result.message_identifier.clone(),
+            };
+            let instruction_id = Uuid::new_v4();
+            let instruction = QueryProviderOutbound {
+                instruction_id: format!("{:?}", instruction_id.to_simple()),
+                request: Some(query_provider_outbound::Request::QueryComplete(complete)),
+            };
+            yield instruction.to_owned();
+
             permits -= 1;
             if permits <= permits_batch_size {
                 debug!("Query processor: stream: send more flow-control permits: amount: {:?}", permits_batch_size);
